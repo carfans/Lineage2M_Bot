@@ -11,11 +11,74 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include <direct.h>
+#else
+#include <sys/stat.h>
+#include <unistd.h>
 #endif
 
-/* 寻找项目中的 data/cbt/<REGION>.json 或 bot/data/cbt/<REGION>.json 路径 */
-static bool get_cbt_file_path(const char *region, char *out_path,
-                              size_t max_len) {
+/* 递归确保文件父目录存在 */
+static void ensure_parent_dir_exists(const char* filepath) {
+  if (!filepath) return;
+  char temp[MAX_PATH];
+  strncpy(temp, filepath, sizeof(temp) - 1);
+  temp[sizeof(temp) - 1] = '\0';
+
+  for (char* p = temp; *p; p++) {
+    if (*p == '/' || *p == '\\') {
+      char old = *p;
+      *p = '\0';
+      if (strlen(temp) > 0 && temp[strlen(temp) - 1] != ':') {
+#ifdef _WIN32
+        CreateDirectoryA(temp, NULL);
+#else
+        mkdir(temp, 0755);
+#endif
+      }
+      *p = old;
+    }
+  }
+}
+
+/* 鲁棒寻找项目中的 data/cbt/<REGION>.json 绝对/相对路径 */
+static bool get_cbt_file_path(const char *region, char *out_path, size_t max_len) {
+  if (!region || !out_path || max_len == 0) return false;
+
+  /* 1. 优先基于当前进程模块 (EXE) 所在物理目录探测绝对路径 */
+#ifdef _WIN32
+  char exe_dir[MAX_PATH] = {0};
+  if (GetModuleFileNameA(NULL, exe_dir, sizeof(exe_dir))) {
+    char *last_slash = strrchr(exe_dir, '\\');
+    if (!last_slash) last_slash = strrchr(exe_dir, '/');
+    if (last_slash) {
+      *last_slash = '\0';
+
+      char candidate[MAX_PATH];
+
+      /* 探测 exe 同级 data/cbt/<REGION>.json */
+      snprintf(candidate, sizeof(candidate), "%s/data/cbt/%s.json", exe_dir, region);
+      FILE *fp = fopen(candidate, "rb");
+      if (fp) { fclose(fp); strncpy(out_path, candidate, max_len); return true; }
+
+      /* 探测 exe 上一级 ../data/cbt/<REGION>.json (如 bin/../data/cbt/CN.json) */
+      snprintf(candidate, sizeof(candidate), "%s/../data/cbt/%s.json", exe_dir, region);
+      fp = fopen(candidate, "rb");
+      if (fp) { fclose(fp); strncpy(out_path, candidate, max_len); return true; }
+
+      /* 探测 exe 同级 bot/data/cbt/<REGION>.json */
+      snprintf(candidate, sizeof(candidate), "%s/bot/data/cbt/%s.json", exe_dir, region);
+      fp = fopen(candidate, "rb");
+      if (fp) { fclose(fp); strncpy(out_path, candidate, max_len); return true; }
+
+      /* 探测 exe 上一级 ../bot/data/cbt/<REGION>.json */
+      snprintf(candidate, sizeof(candidate), "%s/../bot/data/cbt/%s.json", exe_dir, region);
+      fp = fopen(candidate, "rb");
+      if (fp) { fclose(fp); strncpy(out_path, candidate, max_len); return true; }
+    }
+  }
+#endif
+
+  /* 2. 基于当前工作目录相对路径探测 */
   const char *candidates[] = {
       "data/cbt/%s.json",
       "../data/cbt/%s.json",
@@ -25,9 +88,9 @@ static bool get_cbt_file_path(const char *region, char *out_path,
   int num_candidates = (int)(sizeof(candidates) / sizeof(candidates[0]));
 
   for (int i = 0; i < num_candidates; i++) {
-    char temp[260];
+    char temp[MAX_PATH];
     snprintf(temp, sizeof(temp), candidates[i], region);
-    FILE *fp = fopen(temp, "r");
+    FILE *fp = fopen(temp, "rb");
     if (fp) {
       fclose(fp);
       strncpy(out_path, temp, max_len);
@@ -35,7 +98,14 @@ static bool get_cbt_file_path(const char *region, char *out_path,
     }
   }
 
-  /* 默认路径 */
+  /* 3. 最终回退：若在 bin 目录下运行，优先规范保存至 exe_dir/../data/cbt/<REGION>.json */
+#ifdef _WIN32
+  if (exe_dir[0]) {
+    snprintf(out_path, max_len, "%s/../data/cbt/%s.json", exe_dir, region);
+    return true;
+  }
+#endif
+
   snprintf(out_path, max_len, "data/cbt/%s.json", region);
   return true;
 }
@@ -511,9 +581,25 @@ bool l2m_cbt_save(const L2MCbtConfig *cfg) {
   if (!cfg)
     return false;
 
-  FILE *fp = fopen(cfg->file_path, "wb");
-  if (!fp)
-    return false;
+  const char *target_path = cfg->file_path;
+  char resolved_path[MAX_PATH] = {0};
+  if (strlen(target_path) == 0) {
+    get_cbt_file_path(cfg->region, resolved_path, sizeof(resolved_path));
+    target_path = resolved_path;
+  }
+
+  ensure_parent_dir_exists(target_path);
+
+  FILE *fp = fopen(target_path, "wb");
+  if (!fp) {
+    /* 尝试获取规范绝对路径重试 */
+    get_cbt_file_path(cfg->region, resolved_path, sizeof(resolved_path));
+    ensure_parent_dir_exists(resolved_path);
+    fp = fopen(resolved_path, "wb");
+    if (!fp) {
+      return false;
+    }
+  }
 
   fprintf(fp, "{\n");
 

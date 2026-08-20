@@ -607,7 +607,7 @@ static void save_current_screenshot(void) {
     ofn.lpstrFilter = L"BMP 位图文件 (*.bmp)\0*.bmp\0所有文件 (*.*)\0*.*\0";
     ofn.nFilterIndex = 1;
     ofn.lpstrDefExt = L"bmp";
-    ofn.Flags = OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT;
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT | OFN_NOCHANGEDIR;
 
     if (GetSaveFileNameW(&ofn)) {
         if (l2m_image_save_bmp(g_current_frame_rgb, ofn.lpstrFile)) {
@@ -633,7 +633,7 @@ static void load_local_image_file(void) {
     ofn.nMaxFile = sizeof(szFile) / sizeof(wchar_t);
     ofn.lpstrFilter = L"BMP 位图文件 (*.bmp)\0*.bmp\0所有文件 (*.*)\0*.*\0";
     ofn.nFilterIndex = 1;
-    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
 
     if (GetOpenFileNameW(&ofn)) {
         L2MImageBuffer* loaded = l2m_image_load_bmp(ofn.lpstrFile);
@@ -1043,13 +1043,17 @@ static void save_popup_config_to_json(void) {
         refresh_popup_list_ui(name_utf8);
         wchar_t tip[512];
         swprintf(tip, sizeof(tip)/sizeof(wchar_t),
-                 L"✅ 弹窗【%hs】(关联CBT: %hs) 区域 (%d, %d, %d, %d) 已成功保存至 %hs.json 配置文件！",
+                 L"✅ 弹窗【%hs】(关联CBT: %hs) 区域 (%d, %d, %d, %d) 已成功保存至配置文件！\r\n路径: %hs",
                  item.name, item.linked_cbt_key[0] ? item.linked_cbt_key : "无",
-                 rx, ry, rw, rh, g_current_cbt_cfg.region);
+                 rx, ry, rw, rh, g_current_cbt_cfg.file_path);
         SetWindowTextW(g_hStatusText, tip);
         MessageBoxW(g_hDebugWnd, tip, L"弹窗配置保存成功", MB_OK | MB_ICONINFORMATION);
     } else {
-        MessageBoxW(g_hDebugWnd, L"❌ 保存弹窗配置失败，请检查文件写入权限！", L"错误", MB_OK | MB_ICONERROR);
+        wchar_t err_msg[512];
+        swprintf(err_msg, sizeof(err_msg)/sizeof(wchar_t),
+                 L"❌ 保存弹窗配置失败！\r\n目标文件: %hs\r\n请检查文件是否被占用或是否存在写入权限。",
+                 g_current_cbt_cfg.file_path);
+        MessageBoxW(g_hDebugWnd, err_msg, L"保存错误", MB_OK | MB_ICONERROR);
     }
 }
 
@@ -1269,12 +1273,16 @@ static void save_cbt_point_to_json(void) {
     l2m_cbt_set_point(&g_current_cbt_cfg, &pt);
     if (l2m_cbt_save(&g_current_cbt_cfg)) {
         refresh_cbt_points_ui(pt.key);
-        wchar_t tip[256];
-        swprintf(tip, sizeof(tip)/sizeof(wchar_t), L"✅ 点位【%ls】已成功保存至 %hs.json 配置文件！", wkey, g_current_cbt_cfg.region);
+        wchar_t tip[512];
+        swprintf(tip, sizeof(tip)/sizeof(wchar_t), L"✅ 点位【%ls】已成功保存至配置文件！\r\n路径: %hs", wkey, g_current_cbt_cfg.file_path);
         SetWindowTextW(g_hStatusText, tip);
         MessageBoxW(g_hDebugWnd, tip, L"保存成功", MB_OK | MB_ICONINFORMATION);
     } else {
-        MessageBoxW(g_hDebugWnd, L"❌ 保存配置文件失败，请检查文件写入权限！", L"错误", MB_OK | MB_ICONERROR);
+        wchar_t err_msg[512];
+        swprintf(err_msg, sizeof(err_msg)/sizeof(wchar_t),
+                 L"❌ 保存特征点失败！\r\n目标文件: %hs\r\n请检查文件是否被占用或是否存在写入权限。",
+                 g_current_cbt_cfg.file_path);
+        MessageBoxW(g_hDebugWnd, err_msg, L"保存错误", MB_OK | MB_ICONERROR);
     }
 }
 
