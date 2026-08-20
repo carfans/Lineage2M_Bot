@@ -130,55 +130,62 @@ bool l2m_send_key_press(HWND hwnd, WORD vk_code) {
 
 /* 物理级鼠标移动与硬件点击 (DirectInput / RawInput / DirectX 3D 游戏兼容) */
 static void execute_physical_mouse_click(int abs_x, int abs_y) {
-    int screen_w = GetSystemMetrics(SM_CXSCREEN);
-    int screen_h = GetSystemMetrics(SM_CYSCREEN);
-    if (screen_w <= 1 || screen_h <= 1) return;
+    int v_left = GetSystemMetrics(SM_XVIRTUALSCREEN);
+    int v_top = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    int v_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    int v_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    if (v_w <= 0) v_w = GetSystemMetrics(SM_CXSCREEN);
+    if (v_h <= 0) v_h = GetSystemMetrics(SM_CYSCREEN);
 
-    /* 转换为 0~65535 归一化绝对坐标 */
-    DWORD norm_x = (DWORD)(((int64_t)abs_x * 65535) / (screen_w - 1));
-    DWORD norm_y = (DWORD)(((int64_t)abs_y * 65535) / (screen_h - 1));
+    /* 转换为 0~65535 虚拟桌面绝对归一化坐标 */
+    DWORD norm_x = (DWORD)(((int64_t)(abs_x - v_left) * 65536) / v_w);
+    DWORD norm_y = (DWORD)(((int64_t)(abs_y - v_top) * 65536) / v_h);
 
-    /* 1. 移动物理光标至目标绝对屏幕坐标 */
+    /* 1. 先用系统 API 物理移至该像素坐标 */
+    SetCursorPos(abs_x, abs_y);
+
+    /* 2. 再用 SendInput + mouse_event 注入物理移动事件，触发系统与游戏的光标更新 */
     INPUT input_move;
     memset(&input_move, 0, sizeof(INPUT));
     input_move.type = INPUT_MOUSE;
     input_move.mi.dx = norm_x;
     input_move.mi.dy = norm_y;
-    input_move.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
+    input_move.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
     SendInput(1, &input_move, sizeof(INPUT));
-    SetCursorPos(abs_x, abs_y);
-    Sleep(30);
+    mouse_event(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK, norm_x, norm_y, 0, 0);
 
-    /* 2. 发送硬件级鼠标按下事件 (SendInput 硬件注入 + mouse_event 驱动辅助) */
+    /* 3. 悬停停顿 (100ms)：确保 Direct3D/虚幻引擎渲染线程将光标 HitTest 判定更新为按钮 Hover/聚焦状态 */
+    Sleep(100);
+
+    /* 4. 发送原地按下 (不带 MOVE 标志，防止被游戏 UI 判定为微小拖拽/滑动而拒绝触发 Click 事件) */
     INPUT input_down;
     memset(&input_down, 0, sizeof(INPUT));
     input_down.type = INPUT_MOUSE;
-    input_down.mi.dx = norm_x;
-    input_down.mi.dy = norm_y;
-    input_down.mi.dwFlags = MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_ABSOLUTE;
+    input_down.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
     SendInput(1, &input_down, sizeof(INPUT));
     mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
 
-    /* 3. 充足按压保持时间 (80ms)，跨越 3D 游戏 60FPS 帧渲染循环 */
-    Sleep(80);
+    /* 5. 充足按压保持时间 (140ms)，确保跨越 3D 游戏 8~10 个完整渲染帧 */
+    Sleep(140);
 
-    /* 4. 发送硬件级鼠标抬起事件 */
+    /* 6. 发送原地抬起 (不带 MOVE 标志) */
     INPUT input_up;
     memset(&input_up, 0, sizeof(INPUT));
     input_up.type = INPUT_MOUSE;
-    input_up.mi.dx = norm_x;
-    input_up.mi.dy = norm_y;
-    input_up.mi.dwFlags = MOUSEEVENTF_LEFTUP | MOUSEEVENTF_ABSOLUTE;
+    input_up.mi.dwFlags = MOUSEEVENTF_LEFTUP;
     SendInput(1, &input_up, sizeof(INPUT));
     mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
-    Sleep(30);
+
+    /* 7. 抬起后恢复短暂停顿 */
+    Sleep(60);
 }
 
 bool l2m_post_mouse_click(HWND hwnd, int32_t client_x, int32_t client_y) {
     if (!hwnd || !IsWindow(hwnd)) return false;
 
-    /* 1. 强力激活并置前目标游戏窗口 */
+    /* 1. 强力激活并置前目标游戏窗口，并给予 120ms 建立输入焦点 */
     l2m_force_activate_window(hwnd);
+    Sleep(120);
 
     /* 2. 自适应换算客户区物理像素 (将 960x540 标准参考系自适应映射到真实窗口客户区) */
     RECT rcClient;
@@ -197,39 +204,17 @@ bool l2m_post_mouse_click(HWND hwnd, int32_t client_x, int32_t client_y) {
     POINT screen_pt = {actual_x, actual_y};
     ClientToScreen(hwnd, &screen_pt);
 
-    /* 4. 探测坐标处接收输入的实际子窗口 (处理虚幻引擎/DirectX 内部渲染子窗口) */
+    /* 4. 探测坐标处接收输入的实际子窗口并置焦 */
     POINT client_pt = {actual_x, actual_y};
     HWND hTarget = RealChildWindowFromPoint(hwnd, client_pt);
     if (!hTarget || !IsWindow(hTarget)) {
         hTarget = ChildWindowFromPoint(hwnd, client_pt);
     }
-    if (!hTarget || !IsWindow(hTarget)) {
-        hTarget = hwnd;
+    if (hTarget && IsWindow(hTarget) && hTarget != hwnd) {
+        SetFocus(hTarget);
     }
 
-    /* 计算相对于目标子窗口客户区的相对坐标 */
-    POINT child_pt = {actual_x, actual_y};
-    if (hTarget != hwnd) {
-        MapWindowPoints(hwnd, hTarget, &child_pt, 1);
-    }
-    LPARAM lparam_target = MAKELPARAM((WORD)child_pt.x, (WORD)child_pt.y);
-    LPARAM lparam_parent = MAKELPARAM((WORD)actual_x, (WORD)actual_y);
-
-    /* 5. 后台消息直发 (向子窗口与父窗口双重投递) */
-    PostMessageW(hTarget, WM_SETCURSOR, (WPARAM)hTarget, MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
-    PostMessageW(hTarget, WM_MOUSEMOVE, 0, lparam_target);
-    PostMessageW(hTarget, WM_LBUTTONDOWN, MK_LBUTTON, lparam_target);
-    Sleep(50);
-    PostMessageW(hTarget, WM_LBUTTONUP, 0, lparam_target);
-
-    if (hTarget != hwnd) {
-        PostMessageW(hwnd, WM_MOUSEMOVE, 0, lparam_parent);
-        PostMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, lparam_parent);
-        Sleep(50);
-        PostMessageW(hwnd, WM_LBUTTONUP, 0, lparam_parent);
-    }
-
-    /* 6. 执行真实的硬件级物理光标移动与点击注入，确保 DirectInput / PURPLE 100% 响应 */
+    /* 5. 执行纯净的硬件级物理光标移动与原地按下/抬起注入，确保 DirectInput / PURPLE 100% 响应 */
     execute_physical_mouse_click(screen_pt.x, screen_pt.y);
 
     return true;
@@ -245,11 +230,12 @@ bool l2m_post_popup_dismiss_flow(
 
     /* 激活窗口确保输入生效 */
     l2m_force_activate_window(hwnd);
+    Sleep(120);
 
     /* 1. 第一步：点击“不再显示”复选框 */
     if (cb_x > 0 && cb_y > 0) {
         l2m_post_mouse_click(hwnd, cb_x, cb_y);
-        Sleep(delay_ms > 0 ? delay_ms : 200);
+        Sleep(delay_ms >= 300 ? delay_ms : 380);
     }
 
     /* 2. 第二步：点击确认/关闭按钮 */
@@ -265,18 +251,19 @@ bool l2m_execute_teleport_home(HWND hwnd) {
 
     /* 1. 强力切换并激活目标游戏窗口至前台 */
     l2m_force_activate_window(hwnd);
+    Sleep(120);
 
     /* 2. 核心操作：模拟按下快捷键 '0' (回家快捷键，采用 DirectInput 硬件扫描码 0x0B) */
     l2m_send_key_press(hwnd, '0');
-    Sleep(80);
+    Sleep(100);
 
     /* 3. 辅助操作：物理鼠标点击普通战斗模式回城卷轴坐标 (217, 487) */
     l2m_post_mouse_click(hwnd, 217, 487);
-    Sleep(80);
+    Sleep(100);
 
     /* 4. 辅助操作：物理鼠标点击节能黑屏模式回城卷轴坐标 (910, 436) */
     l2m_post_mouse_click(hwnd, 910, 436);
-    Sleep(60);
+    Sleep(80);
 
     /* 5. 再次补发快捷键 '0' 确保 100% 触发回城 */
     l2m_send_key_press(hwnd, '0');

@@ -1096,20 +1096,23 @@ static void execute_test_click(void) {
         hGame = GetDesktopWindow();
     }
 
+    bool is_admin = l2m_is_run_as_admin();
+
     bool click_ok = l2m_post_popup_dismiss_flow(
         hGame,
         g_overlay_has_cb ? g_overlay_cb_pt.x : 0,
         g_overlay_has_cb ? g_overlay_cb_pt.y : 0,
         g_overlay_btn_pt.x, g_overlay_btn_pt.y,
-        250
+        380
     );
 
-    wchar_t tip[256];
+    wchar_t tip[512];
     swprintf(tip, sizeof(tip)/sizeof(wchar_t),
-             L"🖱️ 已发送模拟点击: 按钮目标(%d, %d)%ls (状态: %ls)",
+             L"🖱️ 已发送模拟点击: 按钮目标(%d, %d)%ls (状态: %ls)%ls",
              g_overlay_btn_pt.x, g_overlay_btn_pt.y,
-             g_overlay_has_cb ? L" | 已自动勾选不再显示" : L"",
-             click_ok ? L"✅ 成功投递" : L"❌ 失败");
+             g_overlay_has_cb ? L" | 已勾选不再显示" : L"",
+             click_ok ? L"✅ 物理注入完成" : L"❌ 失败",
+             is_admin ? L"" : L"\r\n⚠️ 注意: 当前未以管理员身份运行，若游戏是管理员权限，Windows UIPI 会拦截物理点击！");
     SetWindowTextW(g_hStatusText, tip);
 }
 
