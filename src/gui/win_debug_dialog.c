@@ -12,6 +12,7 @@
 #include <commdlg.h>
 #include "../../include/l2m_gui.h"
 #include "../../include/l2m_cbt.h"
+#include "../../include/l2m_zone.h"
 
 #ifdef _WIN32
 
@@ -19,6 +20,7 @@
 #define ID_BTN_DETECT_POPUP  1002
 #define ID_BTN_TEST_CLICK    1003
 #define ID_BTN_TEST_HP       1004
+#define ID_BTN_DETECT_MAP    1005
 #define ID_CB_POPUP_TYPE     1005
 #define ID_TXT_POPUP_RECT    1006
 #define ID_TXT_STATUS        1007
@@ -85,6 +87,10 @@ static L2MPoint g_overlay_btn_pt = {0};
 static L2MRect g_overlay_btn_bbox = {0};
 static bool g_overlay_has_cb = false;
 static L2MPoint g_overlay_cb_pt = {0};
+
+/* 地图框与区域高亮叠加 */
+static bool g_has_map_overlay = false;
+static L2MMapBoxResult g_last_map_result = {0};
 
 /* 鼠标交互取点取色 */
 static L2MPoint g_last_pick_pt = {-1, -1};
@@ -725,6 +731,38 @@ static void on_paint_canvas(HWND hWnd) {
             DeleteObject(hPenCross);
         }
 
+        /* 绘制地图框与区域高亮叠加层 */
+        if (g_has_map_overlay && g_last_map_result.detected) {
+            COLORREF zone_col = RGB(255, 204, 0);
+            if (g_last_map_result.zone_type == L2M_ZONE_SAFETY) {
+                zone_col = RGB(0, 255, 128); /* 安全区域：高亮绿 */
+            } else if (g_last_map_result.zone_type == L2M_ZONE_COMBAT) {
+                zone_col = RGB(255, 48, 48);  /* 战斗区域：高亮红 */
+            }
+
+            HPEN hPenMap = CreatePen(PS_SOLID, 2, zone_col);
+            HGDIOBJ hOldPen = SelectObject(hdcMem, hPenMap);
+            SelectObject(hdcMem, GetStockObject(NULL_BRUSH));
+
+            int mx = (int)(g_last_map_result.map_rect.x * scale_x);
+            int my = (int)(g_last_map_result.map_rect.y * scale_y);
+            int mw = (int)(g_last_map_result.map_rect.width * scale_x);
+            int mh = (int)(g_last_map_result.map_rect.height * scale_y);
+
+            Rectangle(hdcMem, mx, my, mx + mw, my + mh);
+
+            SetTextColor(hdcMem, zone_col);
+            SetBkMode(hdcMem, TRANSPARENT);
+            SelectObject(hdcMem, g_hFontBoldUI);
+            wchar_t w_tag[64];
+            swprintf(w_tag, sizeof(w_tag)/sizeof(wchar_t), L"[%hs] %.1f%%",
+                     g_last_map_result.zone_name, g_last_map_result.confidence);
+            TextOutW(hdcMem, mx + 4, my + mh + 2, w_tag, (int)wcslen(w_tag));
+
+            SelectObject(hdcMem, hOldPen);
+            DeleteObject(hPenMap);
+        }
+
         /* 绘制当前选中的 CBT 采样点 */
         if (g_has_selected_cbt_pt && g_selected_cbt_pt.x >= 0 && g_selected_cbt_pt.y >= 0) {
             HPEN hPenCbt = CreatePen(PS_SOLID, 2, RGB(255, 0, 200));
@@ -954,6 +992,55 @@ static void execute_popup_detection(void) {
                  w_reason,
                  w_featdesc, res.feature_info.feature_score,
                  res.bg_info.dark_ratio * 100.0f, res.bg_info.high_chroma_ratio * 100.0f, res.bg_info.mean_brightness);
+    }
+
+    SetWindowTextW(g_hStatusText, log_buf);
+    if (g_hCanvas) InvalidateRect(g_hCanvas, NULL, FALSE);
+}
+
+/* 执行左上角地图框与安全/普通区域检测 */
+static void execute_map_detection(void) {
+    if (!g_current_frame_rgb) {
+        MessageBoxW(g_hDebugWnd, L"请先捕获画面截图或载入图片！", L"提示", MB_OK | MB_ICONWARNING);
+        return;
+    }
+
+    L2MMapBoxResult res;
+    bool ok = l2m_detect_map_zone(g_current_frame_rgb, &g_current_cbt_cfg, &res);
+
+    wchar_t log_buf[1024];
+    if (ok && res.detected) {
+        g_has_map_overlay = true;
+        g_last_map_result = res;
+
+        wchar_t w_desc[256] = {0};
+        utf8_to_wide(res.desc, w_desc, 256);
+
+        wchar_t zone_type_name[64] = L"普通区域(野外)";
+        if (res.zone_type == L2M_ZONE_SAFETY) {
+            wcscpy_s(zone_type_name, 64, L"🛡️ 安全区域(村庄/城镇/和平区)");
+        } else if (res.zone_type == L2M_ZONE_COMBAT) {
+            wcscpy_s(zone_type_name, 64, L"⚔️ 自由战斗区域(PVP/攻城)");
+        } else {
+            wcscpy_s(zone_type_name, 64, L"🌾 普通区域(野外刷怪/常规战斗)");
+        }
+
+        swprintf(log_buf, sizeof(log_buf)/sizeof(wchar_t),
+                 L"🗺️ 成功定位左上角地图框: (%d, %d, %d, %d)\r\n"
+                 L"🛡️ 区域类型判定: 【%ls】(置信度: %.1f分)\r\n"
+                 L"📊 色彩空间统计: 绿色安全占比 %.1f%% | 普通野外占比 %.1f%% | 红色战斗占比 %.1f%%\r\n"
+                 L"🎨 区域状态标识RGB: (%d, %d, %d) | 区域平均亮度: %.1f\r\n"
+                 L"📝 诊断说明: %ls",
+                 res.map_rect.x, res.map_rect.y, res.map_rect.width, res.map_rect.height,
+                 zone_type_name, res.confidence,
+                 res.green_ratio * 100.0f, res.white_gray_ratio * 100.0f, res.red_ratio * 100.0f,
+                 res.badge_mean_rgb.r, res.badge_mean_rgb.g, res.badge_mean_rgb.b, res.mean_brightness,
+                 w_desc);
+    } else {
+        g_has_map_overlay = false;
+        swprintf(log_buf, sizeof(log_buf)/sizeof(wchar_t),
+                 L"❌ 未识别到左上角地图框\r\n"
+                 L"可能原因: 当前不在主界面、地图被全屏弹窗遮挡、或画面截取异常。");
     }
 
     SetWindowTextW(g_hStatusText, log_buf);
@@ -1410,9 +1497,10 @@ static LRESULT CALLBACK DebugWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
             g_hCbtRgbTxt = CreateWindowW(L"EDIT", L"174, 149, 130", WS_CHILD | WS_VISIBLE | WS_BORDER, 162, 192, 98, 22, hWnd, (HMENU)ID_TXT_CBT_RGB, NULL, NULL);
 
             CreateWindowW(L"STATIC", L"容差:", WS_CHILD | WS_VISIBLE, 265, 194, 35, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtTolTxt = CreateWindowW(L"EDIT", L"12", WS_CHILD | WS_VISIBLE | WS_BORDER, 300, 192, 40, 22, hWnd, (HMENU)ID_TXT_CBT_TOL, NULL, NULL);
+            g_hCbtTolTxt = CreateWindowW(L"EDIT", L"12", WS_CHILD | WS_VISIBLE | WS_BORDER, 300, 192, 38, 22, hWnd, (HMENU)ID_TXT_CBT_TOL, NULL, NULL);
 
-            CreateWindowW(L"BUTTON", L"🩸 血条", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 345, 190, 95, 25, hWnd, (HMENU)ID_BTN_TEST_HP, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🩸血条", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 342, 190, 48, 25, hWnd, (HMENU)ID_BTN_TEST_HP, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🗺️地图", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 393, 190, 48, 25, hWnd, (HMENU)ID_BTN_DETECT_MAP, NULL, NULL);
 
             CreateWindowW(L"BUTTON", L"🎯 填入拾取", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 218, 100, 25, hWnd, (HMENU)ID_BTN_CBT_APPLY_PT, NULL, NULL);
             CreateWindowW(L"BUTTON", L"🔬 比对测试", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 120, 218, 100, 25, hWnd, (HMENU)ID_BTN_CBT_TEST_PT, NULL, NULL);
@@ -1464,6 +1552,8 @@ static LRESULT CALLBACK DebugWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
                 execute_test_click();
             } else if (id == ID_BTN_TEST_HP) {
                 execute_hp_test();
+            } else if (id == ID_BTN_DETECT_MAP) {
+                execute_map_detection();
             } else if (id == ID_CB_POPUP_TYPE && HIWORD(wParam) == CBN_SELCHANGE) {
                 int idx = (int)SendMessageW(g_hPopupTypeCb, CB_GETCURSEL, 0, 0);
                 sync_popup_item_selection(idx);

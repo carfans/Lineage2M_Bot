@@ -337,8 +337,9 @@ bool l2m_cbt_load(const char *region, L2MCbtConfig *cfg) {
   strncpy(cfg->region, region, sizeof(cfg->region) - 1);
   get_cbt_file_path(region, cfg->file_path, sizeof(cfg->file_path));
 
-  /* 初始化弹窗全特征默认参数 */
+  /* 初始化弹窗全特征默认参数与地图框默认 ROI (960x540 标准参考系) */
   init_default_popup_params(&cfg->popup_cfg);
+  cfg->map_box_roi = (L2MRect){10, 10, 135, 95};
 
   FILE *fp = fopen(cfg->file_path, "rb");
   if (!fp)
@@ -430,6 +431,21 @@ bool l2m_cbt_load(const char *region, L2MCbtConfig *cfg) {
     }
   }
 
+  /* 检查并解析 "map_box_config" 地图扫描区域节点 */
+  char *map_tag = strstr(content, "\"map_box_config\"");
+  if (map_tag) {
+    char *map_brace_start = strchr(map_tag, '{');
+    if (map_brace_start) {
+      char *map_brace_end = find_matching_brace(map_brace_start);
+      if (map_brace_end) {
+        parse_json_int(map_brace_start, "x", &cfg->map_box_roi.x);
+        parse_json_int(map_brace_start, "y", &cfg->map_box_roi.y);
+        parse_json_int(map_brace_start, "width", &cfg->map_box_roi.width);
+        parse_json_int(map_brace_start, "height", &cfg->map_box_roi.height);
+      }
+    }
+  }
+
   /* 解析普通特征采样点 */
   char *p = content;
   while (*p && cfg->count < MAX_CBT_POINTS) {
@@ -460,8 +476,7 @@ bool l2m_cbt_load(const char *region, L2MCbtConfig *cfg) {
       break;
 
     if (strcmp(key_name, "popup_scan_config") == 0 ||
-        strcmp(key_name, "hp_bar_config") == 0 ||
-        strcmp(key_name, "window_frame_config") == 0 ||
+        strcmp(key_name, "map_box_config") == 0 ||
         strcmp(key_name, "top_left") == 0 ||
         strcmp(key_name, "center") == 0 ||
         strcmp(key_name, "fullscreen") == 0) {
@@ -615,13 +630,27 @@ bool l2m_cbt_save(const L2MCbtConfig *cfg) {
     write_json_popup_item(fp, &cfg->popup_cfg.fullscreen, true);
   }
 
-  if (cfg->count > 0) {
+  if (cfg->count > 0 || cfg->map_box_roi.width > 0) {
     fprintf(fp, "  },\n");
   } else {
     fprintf(fp, "  }\n");
   }
 
-  /* 2. 写入常规 CBT 特征采样点 */
+  /* 2. 写入 map_box_config 节点 */
+  if (cfg->map_box_roi.width > 0 && cfg->map_box_roi.height > 0) {
+    fprintf(fp, "  \"map_box_config\": {\n");
+    fprintf(fp, "    \"x\": %d,\n", cfg->map_box_roi.x);
+    fprintf(fp, "    \"y\": %d,\n", cfg->map_box_roi.y);
+    fprintf(fp, "    \"width\": %d,\n", cfg->map_box_roi.width);
+    fprintf(fp, "    \"height\": %d\n", cfg->map_box_roi.height);
+    if (cfg->count > 0) {
+      fprintf(fp, "  },\n");
+    } else {
+      fprintf(fp, "  }\n");
+    }
+  }
+
+  /* 3. 写入常规 CBT 特征采样点 */
   for (int i = 0; i < cfg->count; i++) {
     const L2MCbtPoint *pt = &cfg->points[i];
     fprintf(fp, "  \"%s\": {\n", pt->key);
@@ -831,5 +860,21 @@ bool l2m_cbt_test_pixel_match(const L2MImageBuffer *img_rgb,
   int tol = pt->tolerance > 0 ? pt->tolerance : 12;
   *out_is_match = (max_diff <= tol);
 
+  return true;
+}
+
+bool l2m_cbt_get_map_box_roi(const L2MCbtConfig* cfg, L2MRect* out_roi) {
+  if (!cfg || !out_roi) return false;
+  if (cfg->map_box_roi.width > 0 && cfg->map_box_roi.height > 0) {
+    *out_roi = cfg->map_box_roi;
+  } else {
+    *out_roi = (L2MRect){10, 10, 135, 95};
+  }
+  return true;
+}
+
+bool l2m_cbt_set_map_box_roi(L2MCbtConfig* cfg, const L2MRect* roi) {
+  if (!cfg || !roi) return false;
+  cfg->map_box_roi = *roi;
   return true;
 }

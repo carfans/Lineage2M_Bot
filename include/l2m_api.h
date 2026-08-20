@@ -10,6 +10,7 @@
 #include "l2m_vision.h"
 #include "l2m_hp.h"
 #include "l2m_popup.h"
+#include "l2m_zone.h"
 #include "l2m_platform.h"
 
 #ifdef _WIN32
@@ -64,6 +65,19 @@ L2M_API bool l2m_check_popup_bg_raw(
     int32_t stride,
     int32_t popup_type_enum,
     L2MPopupBgInfo* out_bg_info
+);
+
+/* 左上角地图框与安全/普通区域判断接口 */
+L2M_API bool l2m_detect_map_zone_raw(
+    const uint8_t* rgb_data,
+    int32_t width,
+    int32_t height,
+    int32_t stride,
+    int32_t map_roi_x,
+    int32_t map_roi_y,
+    int32_t map_roi_w,
+    int32_t map_roi_h,
+    L2MMapBoxResult* out_result
 );
 
 #ifdef __cplusplus

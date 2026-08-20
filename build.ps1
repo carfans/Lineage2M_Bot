@@ -35,6 +35,7 @@ $coreSrcs = @(
     "src/vision/contour.c",
     "src/game/hp_engine.c",
     "src/game/popup_engine.c",
+    "src/game/map_zone_engine.c",
     "src/platform/win_capture.c",
     "src/platform/win_input.c",
     "src/api/l2m_api.c"

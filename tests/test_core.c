@@ -399,6 +399,102 @@ static void test_popup_recognition_engine(void) {
     l2m_image_free(dialog_img);
 }
 
+/* 6. 测试左上角地图框识别与安全/普通/战斗区域判别引擎 */
+static void test_map_zone_recognition(void) {
+    printf("[*] Testing Minimap Frame & Safety/Normal Zone Recognition...\n");
+
+    /* 6.1 安全区域 (Safety / Peace Zone / 村庄) 模拟画面 */
+    L2MImageBuffer* safe_map = l2m_image_create(135, 95, L2M_FMT_RGB888);
+    for (int y = 0; y < 95; y++) {
+        uint8_t* r = safe_map->data + y * safe_map->stride;
+        for (int x = 0; x < 135; x++) {
+            /* 暗色雷达底板 */
+            r[x * 3 + 0] = 30; r[x * 3 + 1] = 35; r[x * 3 + 2] = 40;
+        }
+    }
+    /* 在右下角区域 (x: 40~100, y: 30~50) 绘制高亮绿色安全文字/盾牌徽章 (50, 220, 60) */
+    for (int y = 30; y < 50; y++) {
+        uint8_t* r = safe_map->data + y * safe_map->stride;
+        for (int x = 40; x < 100; x++) {
+            r[x * 3 + 0] = 50; r[x * 3 + 1] = 220; r[x * 3 + 2] = 60;
+        }
+    }
+
+    L2MMapBoxResult safe_res;
+    bool safe_ok = l2m_detect_map_box(safe_map, 10, 10, &safe_res);
+    TEST_ASSERT(safe_ok && safe_res.detected, "l2m_detect_map_box successfully detected map frame");
+    TEST_ASSERT(safe_res.zone_type == L2M_ZONE_SAFETY, "Map zone recognized as L2M_ZONE_SAFETY (Village/Peace)");
+    TEST_ASSERT(safe_res.green_ratio > 0.05f, "Green safety ratio > 5%");
+    TEST_ASSERT(safe_res.confidence >= 80.0f, "Safety zone confidence >= 80");
+
+    /* 6.2 普通区域 (Normal Zone / 野外常规战斗区) 模拟画面 */
+    L2MImageBuffer* normal_map = l2m_image_create(135, 95, L2M_FMT_RGB888);
+    for (int y = 0; y < 95; y++) {
+        uint8_t* r = normal_map->data + y * normal_map->stride;
+        for (int x = 0; x < 135; x++) {
+            r[x * 3 + 0] = 32; r[x * 3 + 1] = 36; r[x * 3 + 2] = 42;
+        }
+    }
+    /* 在右下角区域绘制常规白色/浅灰色文字 (200, 200, 200) */
+    for (int y = 30; y < 50; y++) {
+        uint8_t* r = normal_map->data + y * normal_map->stride;
+        for (int x = 40; x < 100; x++) {
+            r[x * 3 + 0] = 200; r[x * 3 + 1] = 200; r[x * 3 + 2] = 200;
+        }
+    }
+
+    L2MMapBoxResult normal_res;
+    bool normal_ok = l2m_detect_map_box(normal_map, 10, 10, &normal_res);
+    TEST_ASSERT(normal_ok && normal_res.detected, "Normal map detected successfully");
+    TEST_ASSERT(normal_res.zone_type == L2M_ZONE_NORMAL, "Map zone recognized as L2M_ZONE_NORMAL (Field)");
+    TEST_ASSERT(normal_res.white_gray_ratio > 0.05f, "White/gray normal ratio > 5%");
+
+    /* 6.3 自由战斗区域 (Combat Zone / 危险PVP区) 模拟画面 */
+    L2MImageBuffer* combat_map = l2m_image_create(135, 95, L2M_FMT_RGB888);
+    for (int y = 0; y < 95; y++) {
+        uint8_t* r = combat_map->data + y * combat_map->stride;
+        for (int x = 0; x < 135; x++) {
+            r[x * 3 + 0] = 30; r[x * 3 + 1] = 35; r[x * 3 + 2] = 40;
+        }
+    }
+    /* 在右下角区域绘制高亮红色战斗标记 (230, 45, 45) */
+    for (int y = 30; y < 50; y++) {
+        uint8_t* r = combat_map->data + y * combat_map->stride;
+        for (int x = 40; x < 100; x++) {
+            r[x * 3 + 0] = 230; r[x * 3 + 1] = 45; r[x * 3 + 2] = 45;
+        }
+    }
+
+    L2MMapBoxResult combat_res;
+    bool combat_ok = l2m_detect_map_box(combat_map, 10, 10, &combat_res);
+    TEST_ASSERT(combat_ok && combat_res.detected, "Combat map detected successfully");
+    TEST_ASSERT(combat_res.zone_type == L2M_ZONE_COMBAT, "Map zone recognized as L2M_ZONE_COMBAT (PVP)");
+
+    /* 6.4 全屏画面 l2m_detect_map_zone 联合测试 */
+    L2MImageBuffer* full_screen = l2m_image_create(960, 540, L2M_FMT_RGB888);
+    memset(full_screen->data, 20, (size_t)full_screen->stride * full_screen->height);
+    /* 将 safe_map 贴入全屏画面的 (10, 10) */
+    for (int y = 0; y < 95; y++) {
+        uint8_t* src_r = safe_map->data + y * safe_map->stride;
+        uint8_t* dst_r = full_screen->data + (y + 10) * full_screen->stride + (10 * 3);
+        memcpy(dst_r, src_r, 135 * 3);
+    }
+
+    L2MCbtConfig cbt_cfg;
+    memset(&cbt_cfg, 0, sizeof(cbt_cfg));
+    cbt_cfg.map_box_roi = (L2MRect){10, 10, 135, 95};
+
+    L2MMapBoxResult full_res;
+    bool full_ok = l2m_detect_map_zone(full_screen, &cbt_cfg, &full_res);
+    TEST_ASSERT(full_ok && full_res.detected, "l2m_detect_map_zone on full 960x540 screen succeeded");
+    TEST_ASSERT(full_res.zone_type == L2M_ZONE_SAFETY, "Full screen recognized safety zone correctly");
+
+    l2m_image_free(safe_map);
+    l2m_image_free(normal_map);
+    l2m_image_free(combat_map);
+    l2m_image_free(full_screen);
+}
+
 int main(void) {
     printf("===================================================================\n");
     printf("     Lineage2MBot Automated Core Unit & Regression Tests\n");
@@ -415,6 +511,8 @@ int main(void) {
     test_hp_calculation();
     printf("\n");
     test_popup_recognition_engine();
+    printf("\n");
+    test_map_zone_recognition();
 
     l2m_shutdown_engine();
 
@@ -425,3 +523,4 @@ int main(void) {
 
     return (g_tests_passed == g_tests_total) ? 0 : 1;
 }
+

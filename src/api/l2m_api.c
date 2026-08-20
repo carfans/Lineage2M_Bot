@@ -103,3 +103,45 @@ L2M_API bool l2m_check_popup_bg_raw(
 
     return l2m_check_popup_background(&img, (L2MPopupType)popup_type_enum, out_bg_info);
 }
+
+L2M_API bool l2m_detect_map_zone_raw(
+    const uint8_t* rgb_data,
+    int32_t width,
+    int32_t height,
+    int32_t stride,
+    int32_t map_roi_x,
+    int32_t map_roi_y,
+    int32_t map_roi_w,
+    int32_t map_roi_h,
+    L2MMapBoxResult* out_result
+) {
+    if (!rgb_data || width <= 0 || height <= 0 || !out_result) {
+        return false;
+    }
+
+    L2MImageBuffer full_img;
+    full_img.data = (uint8_t*)rgb_data;
+    full_img.width = width;
+    full_img.height = height;
+    full_img.channels = 3;
+    full_img.stride = stride > 0 ? stride : width * 3;
+    full_img.format = L2M_FMT_RGB888;
+    full_img.is_owner = false;
+
+    int rx = (map_roi_w > 0) ? map_roi_x : 10;
+    int ry = (map_roi_h > 0) ? map_roi_y : 10;
+    int rw = (map_roi_w > 0) ? map_roi_w : 135;
+    int rh = (map_roi_h > 0) ? map_roi_h : 95;
+
+    L2MRect roi = {rx, ry, rw, rh};
+    L2MImageBuffer* crop = l2m_image_create(rw, rh, L2M_FMT_RGB888);
+    if (!crop || !l2m_image_crop(&full_img, &roi, crop)) {
+        if (crop) l2m_image_free(crop);
+        return false;
+    }
+
+    bool ok = l2m_detect_map_box(crop, rx, ry, out_result);
+    l2m_image_free(crop);
+    return ok;
+}
+

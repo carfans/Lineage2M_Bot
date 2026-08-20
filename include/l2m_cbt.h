@@ -88,13 +88,20 @@ typedef struct {
     L2MCbtPoint points[MAX_CBT_POINTS];
     int count;
     L2MPopupScanConfig popup_cfg;
+    L2MRect map_box_roi;     /* 左上角地图框扫描 ROI (默认 x: 10, y: 10, w: 135, h: 95) */
 } L2MCbtConfig;
 
 /* 从 data/cbt/<REGION>.json 或 bot/data/cbt/<REGION>.json 加载配置 */
 bool l2m_cbt_load(const char* region, L2MCbtConfig* cfg);
 
-/* 保存配置回 JSON 文件 (同时保存特征点与命名弹窗配置) */
+/* 保存配置回 JSON 文件 (同时保存特征点、命名弹窗与地图框配置) */
 bool l2m_cbt_save(const L2MCbtConfig* cfg);
+
+/* 获取地图框扫描 ROI 配置 */
+bool l2m_cbt_get_map_box_roi(const L2MCbtConfig* cfg, L2MRect* out_roi);
+
+/* 设置地图框扫描 ROI 配置 */
+bool l2m_cbt_set_map_box_roi(L2MCbtConfig* cfg, const L2MRect* roi);
 
 /* 命名弹窗管理接口 (增删改查) */
 bool l2m_cbt_get_popup_item(const L2MCbtConfig* cfg, const char* name, L2MPopupItem* out_item);
