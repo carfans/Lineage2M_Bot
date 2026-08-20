@@ -1,0 +1,24 @@
+# Binary and Output directories
+bin/
+build/
+*.exe
+*.dll
+*.so
+*.dylib
+*.o
+*.obj
+*.a
+*.lib
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosct
+*.sln.docstates
+
+# Temporary & Log files
+*.log
+screenshot_*.bmp
+test_*.exe
