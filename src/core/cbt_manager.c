@@ -40,29 +40,201 @@ static bool get_cbt_file_path(const char *region, char *out_path,
   return true;
 }
 
-/* 提取 JSON 对象中的矩形字段 x, y, width, height */
-static bool parse_json_rect(const char *json_obj_str, L2MRect *out_rect) {
-  if (!json_obj_str || !out_rect) return false;
-
-  char *px = strstr(json_obj_str, "\"x\"");
-  char *py = strstr(json_obj_str, "\"y\"");
-  char *pw = strstr(json_obj_str, "\"width\"");
-  char *ph = strstr(json_obj_str, "\"height\"");
-
-  if (px && py && pw && ph) {
-    char *cx = strchr(px, ':');
-    char *cy = strchr(py, ':');
-    char *cw = strchr(pw, ':');
-    char *ch = strchr(ph, ':');
-    if (cx && cy && cw && ch) {
-      out_rect->x = atoi(cx + 1);
-      out_rect->y = atoi(cy + 1);
-      out_rect->width = atoi(cw + 1);
-      out_rect->height = atoi(ch + 1);
+/* 提取 JSON 对象中的浮点字段 */
+static bool parse_json_float(const char *json_obj_str, const char *key, float *out_val) {
+  if (!json_obj_str || !key || !out_val) return false;
+  char pattern[64];
+  snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+  char *pos = strstr(json_obj_str, pattern);
+  if (pos) {
+    char *colon = strchr(pos, ':');
+    if (colon) {
+      *out_val = (float)atof(colon + 1);
       return true;
     }
   }
   return false;
+}
+
+/* 提取 JSON 对象中的整型字段 */
+static bool parse_json_int(const char *json_obj_str, const char *key, int *out_val) {
+  if (!json_obj_str || !key || !out_val) return false;
+  char pattern[64];
+  snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+  char *pos = strstr(json_obj_str, pattern);
+  if (pos) {
+    char *colon = strchr(pos, ':');
+    if (colon) {
+      *out_val = atoi(colon + 1);
+      return true;
+    }
+  }
+  return false;
+}
+
+/* 提取 JSON 对象中的布尔字段 */
+static bool parse_json_bool(const char *json_obj_str, const char *key, bool *out_val) {
+  if (!json_obj_str || !key || !out_val) return false;
+  char pattern[64];
+  snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+  char *pos = strstr(json_obj_str, pattern);
+  if (pos) {
+    char *colon = strchr(pos, ':');
+    if (colon) {
+      while (*colon && (*colon == ':' || *colon == ' ' || *colon == '\t' || *colon == '\r' || *colon == '\n')) {
+        colon++;
+      }
+      if (strncmp(colon, "true", 4) == 0) {
+        *out_val = true;
+        return true;
+      } else if (strncmp(colon, "false", 5) == 0) {
+        *out_val = false;
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/* 提取 JSON 对象中的 RGB 数组字段: [r, g, b] */
+static bool parse_json_rgb_array(const char *json_obj_str, const char *key, L2MRGB *out_rgb) {
+  if (!json_obj_str || !key || !out_rgb) return false;
+  char pattern[64];
+  snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+  char *pos = strstr(json_obj_str, pattern);
+  if (pos) {
+    char *bracket = strchr(pos, '[');
+    if (bracket) {
+      int r = 0, g = 0, b = 0;
+      char *comma1 = strchr(bracket, ',');
+      if (comma1) {
+        char *comma2 = strchr(comma1 + 1, ',');
+        if (comma2) {
+          r = atoi(bracket + 1);
+          g = atoi(comma1 + 1);
+          b = atoi(comma2 + 1);
+          out_rgb->r = (uint8_t)r;
+          out_rgb->g = (uint8_t)g;
+          out_rgb->b = (uint8_t)b;
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+/* 提取 JSON 对象中的字符串字段 */
+static bool parse_json_string(const char *json_obj_str, const char *key, char *out_str, size_t max_len) {
+  if (!json_obj_str || !key || !out_str || max_len == 0) return false;
+  char pattern[64];
+  snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+  char *pos = strstr(json_obj_str, pattern);
+  if (pos) {
+    char *colon = strchr(pos, ':');
+    if (colon) {
+      char *q1 = strchr(colon, '"');
+      if (q1) {
+        char *q2 = strchr(q1 + 1, '"');
+        if (q2) {
+          size_t len = q2 - (q1 + 1);
+          if (len >= max_len) len = max_len - 1;
+          strncpy(out_str, q1 + 1, len);
+          out_str[len] = '\0';
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+/* 提取 JSON 中的弹窗特征配置节点 */
+static bool parse_json_popup_param(const char *json_obj_str, L2MPopupItem *param) {
+  if (!json_obj_str || !param) return false;
+
+  /* 描述与启用状态 */
+  parse_json_string(json_obj_str, "desc", param->desc, sizeof(param->desc));
+  parse_json_bool(json_obj_str, "enabled", &param->enabled);
+
+  /* 关联链接的 CBT 采样点 Key */
+  parse_json_string(json_obj_str, "linked_cbt_key", param->linked_cbt_key, sizeof(param->linked_cbt_key));
+
+  /* 基础 ROI 坐标 */
+  parse_json_int(json_obj_str, "x", &param->x);
+  parse_json_int(json_obj_str, "y", &param->y);
+  parse_json_int(json_obj_str, "width", &param->width);
+  parse_json_int(json_obj_str, "height", &param->height);
+
+  /* 背景特征 */
+  parse_json_float(json_obj_str, "min_dark_ratio", &param->min_dark_ratio);
+  parse_json_float(json_obj_str, "max_brightness", &param->max_brightness);
+  parse_json_float(json_obj_str, "max_high_chroma", &param->max_high_chroma);
+
+  /* 按钮尺寸几何 */
+  parse_json_int(json_obj_str, "btn_min_w", &param->btn_min_w);
+  parse_json_int(json_obj_str, "btn_max_w", &param->btn_max_w);
+  parse_json_int(json_obj_str, "btn_min_h", &param->btn_min_h);
+  parse_json_int(json_obj_str, "btn_max_h", &param->btn_max_h);
+  parse_json_float(json_obj_str, "btn_ideal_aspect", &param->btn_ideal_aspect);
+
+  /* 按钮色彩 */
+  if (parse_json_rgb_array(json_obj_str, "btn_target_rgb", &param->btn_target_rgb)) {
+    param->has_btn_rgb = true;
+  }
+  parse_json_float(json_obj_str, "btn_min_fill_ratio", &param->btn_min_fill_ratio);
+
+  /* 结构特征开关 */
+  parse_json_bool(json_obj_str, "check_panel", &param->check_panel);
+  parse_json_bool(json_obj_str, "check_title", &param->check_title);
+  parse_json_bool(json_obj_str, "check_text_lines", &param->check_text_lines);
+  parse_json_bool(json_obj_str, "check_close_cross", &param->check_close_cross);
+  parse_json_bool(json_obj_str, "has_checkbox", &param->has_checkbox);
+
+  return true;
+}
+
+static void init_default_popup_params(L2MPopupScanConfig *pop_cfg) {
+  if (!pop_cfg) return;
+
+  pop_cfg->count = 0;
+
+  /* Top-Left 默认特征配置 */
+  pop_cfg->top_left = (L2MPopupItem){
+      .name = "top_left_tip", .desc = "左上角提示弹窗(带不再显示)", .enabled = true,
+      .x = 25, .y = 54, .width = 235, .height = 390,
+      .min_dark_ratio = 0.16f, .max_brightness = 125.0f, .max_high_chroma = 0.35f,
+      .btn_min_w = 28, .btn_max_w = 140, .btn_min_h = 14, .btn_max_h = 55, .btn_ideal_aspect = 2.5f,
+      .has_btn_rgb = true, .btn_target_rgb = {215, 105, 12}, .btn_min_fill_ratio = 0.30f,
+      .check_panel = true, .check_title = true, .check_text_lines = true, .check_close_cross = false,
+      .has_checkbox = true
+  };
+
+  /* Center 默认特征配置 */
+  pop_cfg->center = (L2MPopupItem){
+      .name = "center_modal", .desc = "中间标准模态确认弹窗", .enabled = true,
+      .x = 280, .y = 150, .width = 400, .height = 240,
+      .min_dark_ratio = 0.20f, .max_brightness = 115.0f, .max_high_chroma = 0.35f,
+      .btn_min_w = 40, .btn_max_w = 220, .btn_min_h = 18, .btn_max_h = 65, .btn_ideal_aspect = 3.0f,
+      .has_btn_rgb = true, .btn_target_rgb = {215, 105, 12}, .btn_min_fill_ratio = 0.35f,
+      .check_panel = true, .check_title = true, .check_text_lines = true, .check_close_cross = true,
+      .has_checkbox = false
+  };
+
+  /* Fullscreen 默认特征配置 */
+  pop_cfg->fullscreen = (L2MPopupItem){
+      .name = "fullscreen_event", .desc = "全屏活动与公告弹窗", .enabled = true,
+      .x = 0, .y = 0, .width = 960, .height = 540,
+      .min_dark_ratio = 0.14f, .max_brightness = 135.0f, .max_high_chroma = 0.35f,
+      .btn_min_w = 30, .btn_max_w = 260, .btn_min_h = 16, .btn_max_h = 70, .btn_ideal_aspect = 2.8f,
+      .has_btn_rgb = true, .btn_target_rgb = {215, 105, 12}, .btn_min_fill_ratio = 0.30f,
+      .check_panel = false, .check_title = true, .check_text_lines = true, .check_close_cross = true,
+      .has_checkbox = false
+  };
+
+  pop_cfg->items[pop_cfg->count++] = pop_cfg->top_left;
+  pop_cfg->items[pop_cfg->count++] = pop_cfg->center;
+  pop_cfg->items[pop_cfg->count++] = pop_cfg->fullscreen;
 }
 
 /* 查找与开括号匹配的闭大括号，支持任意层级嵌套和字符串转义 */
@@ -95,10 +267,8 @@ bool l2m_cbt_load(const char *region, L2MCbtConfig *cfg) {
   strncpy(cfg->region, region, sizeof(cfg->region) - 1);
   get_cbt_file_path(region, cfg->file_path, sizeof(cfg->file_path));
 
-  /* 设置弹窗默认参数 */
-  cfg->popup_cfg.top_left = (L2MRect){10, 10, 260, 150};
-  cfg->popup_cfg.center = (L2MRect){280, 150, 400, 240};
-  cfg->popup_cfg.fullscreen = (L2MRect){0, 0, 960, 540};
+  /* 初始化弹窗全特征默认参数 */
+  init_default_popup_params(&cfg->popup_cfg);
 
   FILE *fp = fopen(cfg->file_path, "rb");
   if (!fp)
@@ -123,17 +293,71 @@ bool l2m_cbt_load(const char *region, L2MCbtConfig *cfg) {
   content[read_bytes] = '\0';
   fclose(fp);
 
-  /* 检查并解析 "popup_scan_config" */
+  /* 检查并解析 "popup_scan_config" 动态命名弹窗集合 */
   char *pop_tag = strstr(content, "\"popup_scan_config\"");
   if (pop_tag) {
-    char *tl_tag = strstr(pop_tag, "\"top_left\"");
-    if (tl_tag) parse_json_rect(tl_tag, &cfg->popup_cfg.top_left);
+    char *pop_brace_start = strchr(pop_tag, '{');
+    if (pop_brace_start) {
+      char *pop_brace_end = find_matching_brace(pop_brace_start);
+      if (pop_brace_end) {
+        cfg->popup_cfg.count = 0; /* 重置以读取 JSON 中的自定义命名列表 */
+        char *sub_p = pop_brace_start + 1;
+        while (sub_p < pop_brace_end && cfg->popup_cfg.count < MAX_POPUP_ITEMS) {
+          char *k_start = strchr(sub_p, '"');
+          if (!k_start || k_start >= pop_brace_end) break;
+          k_start++;
+          char *k_end = strchr(k_start, '"');
+          if (!k_end || k_end >= pop_brace_end) break;
 
-    char *ct_tag = strstr(pop_tag, "\"center\"");
-    if (ct_tag) parse_json_rect(ct_tag, &cfg->popup_cfg.center);
+          char item_name[64];
+          size_t name_len = k_end - k_start;
+          if (name_len >= sizeof(item_name)) name_len = sizeof(item_name) - 1;
+          strncpy(item_name, k_start, name_len);
+          item_name[name_len] = '\0';
 
-    char *fs_tag = strstr(pop_tag, "\"fullscreen\"");
-    if (fs_tag) parse_json_rect(fs_tag, &cfg->popup_cfg.fullscreen);
+          char *colon = strchr(k_end, ':');
+          if (!colon || colon >= pop_brace_end) break;
+          char *item_obj_start = strchr(colon, '{');
+          if (!item_obj_start || item_obj_start >= pop_brace_end) break;
+
+          char *item_obj_end = find_matching_brace(item_obj_start);
+          if (!item_obj_end || item_obj_end > pop_brace_end) break;
+
+          /* 初始化并解析命名项 */
+          L2MPopupItem p_item;
+          memset(&p_item, 0, sizeof(p_item));
+          snprintf(p_item.name, sizeof(p_item.name), "%s", item_name);
+          p_item.enabled = true;
+          p_item.btn_ideal_aspect = 2.8f;
+          p_item.min_dark_ratio = 0.16f;
+          p_item.max_brightness = 125.0f;
+          p_item.max_high_chroma = 0.35f;
+          p_item.btn_min_w = 28; p_item.btn_max_w = 220;
+          p_item.btn_min_h = 14; p_item.btn_max_h = 65;
+          p_item.has_btn_rgb = true;
+          p_item.btn_target_rgb = (L2MRGB){215, 105, 12};
+          p_item.btn_min_fill_ratio = 0.30f;
+          p_item.check_panel = true;
+          p_item.check_title = true;
+          p_item.check_text_lines = true;
+          p_item.check_close_cross = true;
+
+          parse_json_popup_param(item_obj_start, &p_item);
+          cfg->popup_cfg.items[cfg->popup_cfg.count++] = p_item;
+
+          /* 同步映射历史别名 */
+          if (strcmp(item_name, "top_left") == 0 || strcmp(item_name, "top_left_tip") == 0) {
+            cfg->popup_cfg.top_left = p_item;
+          } else if (strcmp(item_name, "center") == 0 || strcmp(item_name, "center_modal") == 0) {
+            cfg->popup_cfg.center = p_item;
+          } else if (strcmp(item_name, "fullscreen") == 0 || strcmp(item_name, "fullscreen_event") == 0) {
+            cfg->popup_cfg.fullscreen = p_item;
+          }
+
+          sub_p = item_obj_end + 1;
+        }
+      }
+    }
   }
 
   /* 解析普通特征采样点 */
@@ -248,6 +472,41 @@ bool l2m_cbt_load(const char *region, L2MCbtConfig *cfg) {
   return true;
 }
 
+static void write_json_popup_item(FILE *fp, const L2MPopupItem *p, bool is_last) {
+  fprintf(fp, "    \"%s\": {\n", p->name);
+  if (strlen(p->desc) > 0) {
+    fprintf(fp, "      \"desc\": \"%s\",\n", p->desc);
+  }
+  fprintf(fp, "      \"enabled\": %s,\n", p->enabled ? "true" : "false");
+  if (strlen(p->linked_cbt_key) > 0) {
+    fprintf(fp, "      \"linked_cbt_key\": \"%s\",\n", p->linked_cbt_key);
+  }
+  fprintf(fp, "      \"x\": %d,\n", p->x);
+  fprintf(fp, "      \"y\": %d,\n", p->y);
+  fprintf(fp, "      \"width\": %d,\n", p->width);
+  fprintf(fp, "      \"height\": %d,\n", p->height);
+  fprintf(fp, "      \"min_dark_ratio\": %.2f,\n", p->min_dark_ratio);
+  fprintf(fp, "      \"max_brightness\": %.1f,\n", p->max_brightness);
+  fprintf(fp, "      \"max_high_chroma\": %.2f,\n", p->max_high_chroma);
+  fprintf(fp, "      \"btn_min_w\": %d,\n", p->btn_min_w);
+  fprintf(fp, "      \"btn_max_w\": %d,\n", p->btn_max_w);
+  fprintf(fp, "      \"btn_min_h\": %d,\n", p->btn_min_h);
+  fprintf(fp, "      \"btn_max_h\": %d,\n", p->btn_max_h);
+  fprintf(fp, "      \"btn_ideal_aspect\": %.2f,\n", p->btn_ideal_aspect);
+  if (p->has_btn_rgb) {
+    fprintf(fp, "      \"btn_target_rgb\": [%d, %d, %d],\n", p->btn_target_rgb.r, p->btn_target_rgb.g, p->btn_target_rgb.b);
+  } else {
+    fprintf(fp, "      \"btn_target_rgb\": null,\n");
+  }
+  fprintf(fp, "      \"btn_min_fill_ratio\": %.2f,\n", p->btn_min_fill_ratio);
+  fprintf(fp, "      \"check_panel\": %s,\n", p->check_panel ? "true" : "false");
+  fprintf(fp, "      \"check_title\": %s,\n", p->check_title ? "true" : "false");
+  fprintf(fp, "      \"check_text_lines\": %s,\n", p->check_text_lines ? "true" : "false");
+  fprintf(fp, "      \"check_close_cross\": %s,\n", p->check_close_cross ? "true" : "false");
+  fprintf(fp, "      \"has_checkbox\": %s\n", p->has_checkbox ? "true" : "false");
+  fprintf(fp, "    }%s\n", is_last ? "" : ",");
+}
+
 bool l2m_cbt_save(const L2MCbtConfig *cfg) {
   if (!cfg)
     return false;
@@ -258,14 +517,17 @@ bool l2m_cbt_save(const L2MCbtConfig *cfg) {
 
   fprintf(fp, "{\n");
 
-  /* 1. 写入 popup_scan_config 节点 */
+  /* 1. 写入包含命名弹窗列表的 popup_scan_config 节点 */
   fprintf(fp, "  \"popup_scan_config\": {\n");
-  fprintf(fp, "    \"top_left\": {\n      \"x\": %d,\n      \"y\": %d,\n      \"width\": %d,\n      \"height\": %d\n    },\n",
-          cfg->popup_cfg.top_left.x, cfg->popup_cfg.top_left.y, cfg->popup_cfg.top_left.width, cfg->popup_cfg.top_left.height);
-  fprintf(fp, "    \"center\": {\n      \"x\": %d,\n      \"y\": %d,\n      \"width\": %d,\n      \"height\": %d\n    },\n",
-          cfg->popup_cfg.center.x, cfg->popup_cfg.center.y, cfg->popup_cfg.center.width, cfg->popup_cfg.center.height);
-  fprintf(fp, "    \"fullscreen\": {\n      \"x\": %d,\n      \"y\": %d,\n      \"width\": %d,\n      \"height\": %d\n    }\n",
-          cfg->popup_cfg.fullscreen.x, cfg->popup_cfg.fullscreen.y, cfg->popup_cfg.fullscreen.width, cfg->popup_cfg.fullscreen.height);
+  if (cfg->popup_cfg.count > 0) {
+    for (int i = 0; i < cfg->popup_cfg.count; i++) {
+      write_json_popup_item(fp, &cfg->popup_cfg.items[i], (i == cfg->popup_cfg.count - 1));
+    }
+  } else {
+    write_json_popup_item(fp, &cfg->popup_cfg.top_left, false);
+    write_json_popup_item(fp, &cfg->popup_cfg.center, false);
+    write_json_popup_item(fp, &cfg->popup_cfg.fullscreen, true);
+  }
 
   if (cfg->count > 0) {
     fprintf(fp, "  },\n");
@@ -303,19 +565,99 @@ bool l2m_cbt_save(const L2MCbtConfig *cfg) {
   return true;
 }
 
+bool l2m_cbt_get_popup_item(const L2MCbtConfig* cfg, const char* name, L2MPopupItem* out_item) {
+  if (!cfg || !name || !out_item) return false;
+  for (int i = 0; i < cfg->popup_cfg.count; i++) {
+    if (strcmp(cfg->popup_cfg.items[i].name, name) == 0) {
+      *out_item = cfg->popup_cfg.items[i];
+      return true;
+    }
+  }
+  return false;
+}
+
+bool l2m_cbt_set_popup_item(L2MCbtConfig* cfg, const L2MPopupItem* item) {
+  if (!cfg || !item || strlen(item->name) == 0) return false;
+
+  for (int i = 0; i < cfg->popup_cfg.count; i++) {
+    if (strcmp(cfg->popup_cfg.items[i].name, item->name) == 0) {
+      cfg->popup_cfg.items[i] = *item;
+      if (strcmp(item->name, "top_left") == 0 || strcmp(item->name, "top_left_tip") == 0) cfg->popup_cfg.top_left = *item;
+      if (strcmp(item->name, "center") == 0 || strcmp(item->name, "center_modal") == 0) cfg->popup_cfg.center = *item;
+      if (strcmp(item->name, "fullscreen") == 0 || strcmp(item->name, "fullscreen_event") == 0) cfg->popup_cfg.fullscreen = *item;
+      return true;
+    }
+  }
+
+  if (cfg->popup_cfg.count < MAX_POPUP_ITEMS) {
+    cfg->popup_cfg.items[cfg->popup_cfg.count++] = *item;
+    if (strcmp(item->name, "top_left") == 0 || strcmp(item->name, "top_left_tip") == 0) cfg->popup_cfg.top_left = *item;
+    if (strcmp(item->name, "center") == 0 || strcmp(item->name, "center_modal") == 0) cfg->popup_cfg.center = *item;
+    if (strcmp(item->name, "fullscreen") == 0 || strcmp(item->name, "fullscreen_event") == 0) cfg->popup_cfg.fullscreen = *item;
+    return true;
+  }
+  return false;
+}
+
+bool l2m_cbt_delete_popup_item(L2MCbtConfig* cfg, const char* name) {
+  if (!cfg || !name) return false;
+  for (int i = 0; i < cfg->popup_cfg.count; i++) {
+    if (strcmp(cfg->popup_cfg.items[i].name, name) == 0) {
+      for (int j = i; j < cfg->popup_cfg.count - 1; j++) {
+        cfg->popup_cfg.items[j] = cfg->popup_cfg.items[j + 1];
+      }
+      cfg->popup_cfg.count--;
+      return true;
+    }
+  }
+  return false;
+}
+
+int32_t l2m_cbt_get_popup_count(const L2MCbtConfig* cfg) {
+  return cfg ? cfg->popup_cfg.count : 0;
+}
+
+bool l2m_cbt_get_popup_by_index(const L2MCbtConfig* cfg, int32_t index, L2MPopupItem* out_item) {
+  if (!cfg || !out_item || index < 0 || index >= cfg->popup_cfg.count) return false;
+  *out_item = cfg->popup_cfg.items[index];
+  return true;
+}
+
 bool l2m_cbt_get_popup_roi(const L2MCbtConfig* cfg, L2MPopupType ptype, L2MRect* out_roi) {
   if (!cfg || !out_roi) return false;
-  if (ptype == L2M_POPUP_TOP_LEFT) *out_roi = cfg->popup_cfg.top_left;
-  else if (ptype == L2M_POPUP_CENTER) *out_roi = cfg->popup_cfg.center;
-  else *out_roi = cfg->popup_cfg.fullscreen;
+  const L2MPopupItem* p = (ptype == L2M_POPUP_TOP_LEFT) ? &cfg->popup_cfg.top_left :
+                          ((ptype == L2M_POPUP_CENTER) ? &cfg->popup_cfg.center : &cfg->popup_cfg.fullscreen);
+  out_roi->x = p->x;
+  out_roi->y = p->y;
+  out_roi->width = p->width;
+  out_roi->height = p->height;
   return true;
 }
 
 bool l2m_cbt_set_popup_roi(L2MCbtConfig* cfg, L2MPopupType ptype, const L2MRect* roi) {
   if (!cfg || !roi) return false;
-  if (ptype == L2M_POPUP_TOP_LEFT) cfg->popup_cfg.top_left = *roi;
-  else if (ptype == L2M_POPUP_CENTER) cfg->popup_cfg.center = *roi;
-  else cfg->popup_cfg.fullscreen = *roi;
+  L2MPopupItem* p = (ptype == L2M_POPUP_TOP_LEFT) ? &cfg->popup_cfg.top_left :
+                    ((ptype == L2M_POPUP_CENTER) ? &cfg->popup_cfg.center : &cfg->popup_cfg.fullscreen);
+  p->x = roi->x;
+  p->y = roi->y;
+  p->width = roi->width;
+  p->height = roi->height;
+  return true;
+}
+
+bool l2m_cbt_get_popup_param(const L2MCbtConfig* cfg, L2MPopupType ptype, L2MPopupTypeParam* out_param) {
+  if (!cfg || !out_param) return false;
+  if (ptype == L2M_POPUP_TOP_LEFT) *out_param = cfg->popup_cfg.top_left;
+  else if (ptype == L2M_POPUP_CENTER) *out_param = cfg->popup_cfg.center;
+  else *out_param = cfg->popup_cfg.fullscreen;
+  return true;
+}
+
+bool l2m_cbt_set_popup_param(L2MCbtConfig* cfg, L2MPopupType ptype, const L2MPopupTypeParam* param) {
+  if (!cfg || !param) return false;
+  if (ptype == L2M_POPUP_TOP_LEFT) cfg->popup_cfg.top_left = *param;
+  else if (ptype == L2M_POPUP_CENTER) cfg->popup_cfg.center = *param;
+  else cfg->popup_cfg.fullscreen = *param;
   return true;
 }
 

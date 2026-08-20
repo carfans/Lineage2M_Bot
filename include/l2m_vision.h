@@ -85,6 +85,56 @@ int32_t l2m_find_contours(
     int32_t max_area
 );
 
+/* 区域内部颜色均值与色彩特征统计 */
+bool l2m_analyze_region_color(
+    const L2MImageBuffer* src_rgb,
+    const L2MRect* roi,
+    L2MRGB* out_mean_rgb,
+    float* out_mean_brightness,
+    float* out_max_chroma
+);
+
+/* 按钮内部像素色彩精确核验与相似度打分 */
+bool l2m_verify_button_color(
+    const L2MImageBuffer* src_rgb,
+    const L2MRect* roi,
+    bool is_orange,
+    L2MRGB* out_mean_rgb,
+    float* out_fill_ratio,
+    float* out_color_score
+);
+
+/* 按钮尺寸与宽高比几何形态打分 */
+bool l2m_evaluate_button_size(
+    const L2MRect* bbox,
+    L2MPopupType ptype,
+    float* out_size_score
+);
+
+/* 弹窗面板边界/轮廓检测算子 */
+bool l2m_find_dialog_panel(
+    const L2MImageBuffer* src_rgb,
+    L2MPopupType ptype,
+    L2MRect* out_panel_rect,
+    float* out_panel_score
+);
+
+/* 水平文本行纹理投影分析算子 (计算文字行数与波峰对比度) */
+bool l2m_analyze_text_line_projection(
+    const L2MImageBuffer* src_rgb,
+    const L2MRect* roi,
+    int32_t* out_line_count,
+    float* out_contrast
+);
+
+/* 右上角关闭叉号 (X) 特征检测算子 */
+bool l2m_find_close_cross_icon(
+    const L2MImageBuffer* src_rgb,
+    const L2MRect* search_roi,
+    L2MPoint* out_cross_pos,
+    float* out_cross_score
+);
+
 #ifdef __cplusplus
 }
 #endif

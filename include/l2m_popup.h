@@ -77,7 +77,24 @@ bool l2m_detect_standard_popup(
 );
 
 /**
- * @brief 统一弹窗检测主入口 (带背景色先验校验)
+ * @brief 弹窗本体多维结构特征检测 (面板轮廓、标题栏、文本行投影与叉号特征)
+ * @param crop_rgb 弹窗扫描 ROI 切片
+ * @param base_x 全局 X 偏移
+ * @param base_y 全局 Y 偏移
+ * @param popup_type 弹窗类型 (top_left, center, fullscreen)
+ * @param out_features 输出特征分析结果
+ * @return 是否检测到至少一项有效弹窗结构特征
+ */
+bool l2m_detect_popup_features(
+    const L2MImageBuffer* crop_rgb,
+    int32_t base_x,
+    int32_t base_y,
+    L2MPopupType popup_type,
+    L2MPopupFeatureInfo* out_features
+);
+
+/**
+ * @brief 统一弹窗检测主入口 (带背景色先验校验与特征检测)
  * @param crop_rgb 弹窗切片
  * @param base_x 全局 X 偏移
  * @param base_y 全局 Y 偏移
@@ -92,6 +109,38 @@ bool l2m_detect_popup(
     int32_t base_y,
     L2MPopupType popup_type,
     bool validate_bg,
+    L2MPopupResult* out_result
+);
+
+/**
+ * @brief 基于指定命名弹窗配置项进行高精度检测
+ * @param crop_rgb 弹窗切片
+ * @param base_x 全局 X 偏移
+ * @param base_y 全局 Y 偏移
+ * @param item 命名弹窗特征配置项 (const L2MPopupItem*)
+ * @param validate_bg 是否启用背景色先验校验
+ * @param out_result 输出详细检测结果
+ * @return 是否成功识别
+ */
+bool l2m_detect_popup_by_item(
+    const L2MImageBuffer* crop_rgb,
+    int32_t base_x,
+    int32_t base_y,
+    const void* item,
+    bool validate_bg,
+    L2MPopupResult* out_result
+);
+
+/**
+ * @brief 在全屏画面中根据 CBT 配置自动巡检所有已启用的命名弹窗
+ * @param full_frame_rgb 完整画面 (如 960x540 RGB)
+ * @param cbt_cfg CBT 配置 (const L2MCbtConfig*)
+ * @param out_result 输出检测结果
+ * @return 是否检测到任意已启用的命名弹窗
+ */
+bool l2m_detect_all_popups(
+    const L2MImageBuffer* full_frame_rgb,
+    const void* cbt_cfg,
     L2MPopupResult* out_result
 );
 

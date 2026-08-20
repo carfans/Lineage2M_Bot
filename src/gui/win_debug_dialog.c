@@ -25,6 +25,13 @@
 #define ID_CANVAS_VIEW       1008
 #define ID_BTN_SAVE_POPUP    1009
 
+/* 命名弹窗管理扩展控件 ID */
+#define ID_TXT_POPUP_NAME    1030
+#define ID_TXT_POPUP_DESC    1031
+#define ID_CB_POPUP_LINK_CBT 1032
+#define ID_BTN_NEW_POPUP     1033
+#define ID_BTN_DEL_POPUP     1034
+
 /* CBT 采样点管理控件 ID */
 #define ID_CB_CBT_REGION     1010
 #define ID_CB_CBT_POINTS     1011
@@ -50,6 +57,9 @@ static HWND g_hZoomInfoLbl = NULL;
 static HWND g_hStatusText = NULL;
 static HWND g_hPopupRectTxt = NULL;
 static HWND g_hPopupTypeCb = NULL;
+static HWND g_hPopupNameTxt = NULL;
+static HWND g_hPopupDescTxt = NULL;
+static HWND g_hPopupLinkedCbtCb = NULL;
 static HWND g_hColorInfoLbl = NULL;
 static HFONT g_hFontDebugUI = NULL;
 static HFONT g_hFontBoldUI = NULL;
@@ -84,6 +94,8 @@ static L2MRGB g_last_pick_rgb = {0, 0, 0};
 static bool g_has_selected_cbt_pt = false;
 static L2MPoint g_selected_cbt_pt = {-1, -1};
 static L2MPoint g_zoom_center_pt = {-1, -1};
+
+static void update_debug_window_title(void);
 
 /* 递归设置字体 */
 static void apply_debug_ui_font(HWND hWnd, HFONT hFont) {
@@ -333,19 +345,89 @@ static LRESULT CALLBACK ZoomWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
     return DefWindowProcW(hWnd, msg, wParam, lParam);
 }
 
-/* 刷新弹窗 ROI 编辑框显示 */
-static void update_popup_roi_display(void) {
-    if (!g_hPopupTypeCb || !g_hPopupRectTxt) return;
-    int pt_idx = (int)SendMessageW(g_hPopupTypeCb, CB_GETCURSEL, 0, 0);
-    L2MPopupType ptype = (pt_idx == 0) ? L2M_POPUP_TOP_LEFT :
-                         ((pt_idx == 1) ? L2M_POPUP_CENTER : L2M_POPUP_FULLSCREEN);
+/* 刷新弹窗关联 CBT 采样点下拉框 */
+static void refresh_popup_linked_cbt_ui(const char* select_key) {
+    if (!g_hPopupLinkedCbtCb) return;
+    SendMessageW(g_hPopupLinkedCbtCb, CB_RESETCONTENT, 0, 0);
 
-    L2MRect roi;
-    l2m_cbt_get_popup_roi(&g_current_cbt_cfg, ptype, &roi);
+    /* 第 0 项: 无关联 */
+    SendMessageW(g_hPopupLinkedCbtCb, CB_ADDSTRING, 0, (LPARAM)L"(无关联 CBT 采样点)");
 
-    wchar_t buf[64];
-    swprintf(buf, sizeof(buf)/sizeof(wchar_t), L"%d, %d, %d, %d", roi.x, roi.y, roi.width, roi.height);
-    SetWindowTextW(g_hPopupRectTxt, buf);
+    int select_idx = 0;
+    for (int i = 0; i < g_current_cbt_cfg.count; i++) {
+        wchar_t wkey[64];
+        MultiByteToWideChar(CP_UTF8, 0, g_current_cbt_cfg.points[i].key, -1, wkey, 64);
+        SendMessageW(g_hPopupLinkedCbtCb, CB_ADDSTRING, 0, (LPARAM)wkey);
+
+        if (select_key && strcmp(g_current_cbt_cfg.points[i].key, select_key) == 0) {
+            select_idx = i + 1;
+        }
+    }
+
+    SendMessageW(g_hPopupLinkedCbtCb, CB_SETCURSEL, select_idx, 0);
+}
+
+/* 联动更新选中的弹窗配置到界面编辑框 */
+static void sync_popup_item_selection(int idx) {
+    if (idx < 0 || idx >= g_current_cbt_cfg.popup_cfg.count) return;
+    const L2MPopupItem* item = &g_current_cbt_cfg.popup_cfg.items[idx];
+
+    wchar_t wbuf[256];
+    MultiByteToWideChar(CP_UTF8, 0, item->name, -1, wbuf, 64);
+    SetWindowTextW(g_hPopupNameTxt, wbuf);
+
+    MultiByteToWideChar(CP_UTF8, 0, item->desc, -1, wbuf, 128);
+    SetWindowTextW(g_hPopupDescTxt, wbuf);
+
+    swprintf(wbuf, sizeof(wbuf)/sizeof(wchar_t), L"%d, %d, %d, %d", item->x, item->y, item->width, item->height);
+    SetWindowTextW(g_hPopupRectTxt, wbuf);
+
+    refresh_popup_linked_cbt_ui(item->linked_cbt_key);
+}
+
+/* 刷新命名弹窗列表下拉框 */
+static void refresh_popup_list_ui(const char* select_name) {
+    if (!g_hPopupTypeCb) return;
+    SendMessageW(g_hPopupTypeCb, CB_RESETCONTENT, 0, 0);
+
+    int select_idx = -1;
+    for (int i = 0; i < g_current_cbt_cfg.popup_cfg.count; i++) {
+        const L2MPopupItem* item = &g_current_cbt_cfg.popup_cfg.items[i];
+        wchar_t wname[64] = {0};
+        wchar_t wdesc[128] = {0};
+        MultiByteToWideChar(CP_UTF8, 0, item->name, -1, wname, 64);
+        MultiByteToWideChar(CP_UTF8, 0, item->desc, -1, wdesc, 128);
+
+        wchar_t item_text[256];
+        if (wdesc[0]) {
+            swprintf(item_text, sizeof(item_text)/sizeof(wchar_t), L"%ls (%ls)", wname, wdesc);
+        } else {
+            swprintf(item_text, sizeof(item_text)/sizeof(wchar_t), L"%ls", wname);
+        }
+        SendMessageW(g_hPopupTypeCb, CB_ADDSTRING, 0, (LPARAM)item_text);
+
+        if (select_name && strcmp(item->name, select_name) == 0) {
+            select_idx = i;
+        }
+    }
+
+    if (select_idx >= 0) {
+        SendMessageW(g_hPopupTypeCb, CB_SETCURSEL, select_idx, 0);
+        sync_popup_item_selection(select_idx);
+    } else if (g_current_cbt_cfg.popup_cfg.count > 0) {
+        SendMessageW(g_hPopupTypeCb, CB_SETCURSEL, 0, 0);
+        sync_popup_item_selection(0);
+    }
+}
+
+/* 新建弹窗输入准备 */
+static void create_new_popup_item_ui(void) {
+    SetWindowTextW(g_hPopupNameTxt, L"");
+    SetWindowTextW(g_hPopupDescTxt, L"自定义弹窗");
+    SetWindowTextW(g_hPopupRectTxt, L"280, 150, 400, 240");
+    if (g_hPopupLinkedCbtCb) SendMessageW(g_hPopupLinkedCbtCb, CB_SETCURSEL, 0, 0);
+    SetFocus(g_hPopupNameTxt);
+    SetWindowTextW(g_hStatusText, L"✨ 已重置输入框。请输入新弹窗名称(Key)与描述，设置ROI区域后点击【💾 保存/更新】即可新建弹窗。");
 }
 
 /* 刷新 CBT 采样点列表下拉框 */
@@ -418,7 +500,7 @@ static void sync_cbt_point_selection(int idx) {
 static void switch_cbt_region(const char* region) {
     l2m_cbt_load(region, &g_current_cbt_cfg);
     refresh_cbt_points_ui(NULL);
-    update_popup_roi_display();
+    refresh_popup_list_ui(NULL);
 
     if (g_current_cbt_cfg.count > 0) {
         sync_cbt_point_selection(0);
@@ -778,16 +860,20 @@ static void execute_popup_detection(void) {
     }
 
     int pt_idx = (int)SendMessageW(g_hPopupTypeCb, CB_GETCURSEL, 0, 0);
-    L2MPopupType ptype = (pt_idx == 0) ? L2M_POPUP_TOP_LEFT :
-                         ((pt_idx == 1) ? L2M_POPUP_CENTER : L2M_POPUP_FULLSCREEN);
+    const L2MPopupItem* target_item = NULL;
+    if (pt_idx >= 0 && pt_idx < g_current_cbt_cfg.popup_cfg.count) {
+        target_item = &g_current_cbt_cfg.popup_cfg.items[pt_idx];
+    }
 
     wchar_t rect_str_w[64];
     GetWindowTextW(g_hPopupRectTxt, rect_str_w, sizeof(rect_str_w)/sizeof(wchar_t));
     int rx = 0, ry = 0, rw = 0, rh = 0;
     if (swscanf(rect_str_w, L"%d, %d, %d, %d", &rx, &ry, &rw, &rh) != 4) {
-        if (ptype == L2M_POPUP_TOP_LEFT) { rx = 10; ry = 10; rw = 260; rh = 150; }
-        else if (ptype == L2M_POPUP_CENTER) { rx = 280; ry = 150; rw = 400; rh = 240; }
-        else { rx = 0; ry = 0; rw = 960; rh = 540; }
+        if (target_item) {
+            rx = target_item->x; ry = target_item->y; rw = target_item->width; rh = target_item->height;
+        } else {
+            rx = 280; ry = 150; rw = 400; rh = 240;
+        }
     }
 
     L2MRect roi = {rx, ry, rw, rh};
@@ -799,10 +885,15 @@ static void execute_popup_detection(void) {
     }
 
     L2MPopupResult res;
-    bool ok = l2m_detect_popup(crop, rx, ry, ptype, true, &res);
+    bool ok = false;
+    if (target_item) {
+        ok = l2m_detect_popup_by_item(crop, rx, ry, target_item, true, &res);
+    } else {
+        ok = l2m_detect_popup(crop, rx, ry, L2M_POPUP_CENTER, true, &res);
+    }
     l2m_image_free(crop);
 
-    wchar_t log_buf[512];
+    wchar_t log_buf[1024];
     if (ok && res.detected) {
         g_has_popup_overlay = true;
         g_overlay_scan_rect = roi;
@@ -817,68 +908,205 @@ static void execute_popup_detection(void) {
         }
 
         swprintf(log_buf, sizeof(log_buf)/sizeof(wchar_t),
-                 L"✅ 成功锁定【%hs】\r\n🎯 确认按钮坐标: (%d, %d) | 尺寸: %dx%d%ls\r\n📊 背景校验: ✅ 暗色底占比 %.1f%% (均值亮度: %.1f)",
-                 res.desc, res.button_pos.x, res.button_pos.y,
-                 res.button_bbox.width, res.button_bbox.height,
-                 cb_tip, res.bg_info.dark_ratio * 100.0f, res.bg_info.mean_brightness);
+                 L"✅ 成功锁定弹窗【%hs】(置信度: %.1f分)\r\n"
+                 L"🎯 按钮坐标: (%d, %d) | 尺寸: %dx%d (比例: %.2f:1, 尺寸得分: %.1f)\r\n"
+                 L"🎨 按钮颜色: RGB(%d, %d, %d) | 填充纯度: %.1f%% | 色彩得分: %.1f\r\n"
+                 L"🏛️ 弹窗特征: %hs (特征得分: %.1f分)\r\n"
+                 L"📊 背景校验: ✅ 暗底占比 %.1f%% | 彩度干扰 %.1f%% | 均值亮度 %.1f%ls",
+                 res.popup_name[0] ? res.popup_name : res.desc, res.score,
+                 res.button_pos.x, res.button_pos.y,
+                 res.button_bbox.width, res.button_bbox.height, res.button_aspect_ratio, res.size_score,
+                 res.button_mean_rgb.r, res.button_mean_rgb.g, res.button_mean_rgb.b,
+                 res.button_fill_ratio * 100.0f, res.color_score,
+                 res.feature_info.feature_desc[0] ? res.feature_info.feature_desc : "已提取", res.feature_info.feature_score,
+                 res.bg_info.dark_ratio * 100.0f, res.bg_info.high_chroma_ratio * 100.0f, res.bg_info.mean_brightness,
+                 cb_tip);
     } else {
         g_has_popup_overlay = false;
-        swprintf(log_buf, sizeof(log_buf)/sizeof(wchar_t), L"❌ 未检测到弹窗\r\n原因: %hs (暗色占比: %.1f%%, 均值亮度: %.1f)",
-                 res.bg_info.reason[0] ? res.bg_info.reason : "未找到按钮轮廓",
-                 res.bg_info.dark_ratio * 100.0f, res.bg_info.mean_brightness);
+        swprintf(log_buf, sizeof(log_buf)/sizeof(wchar_t),
+                 L"❌ 未检测到弹窗【%hs】\r\n"
+                 L"原因: %hs\r\n"
+                 L"🏛️ 特征指标: %hs (特征得分: %.1f分)\r\n"
+                 L"📊 背景指标: 暗底占比 %.1f%% | 彩度干扰 %.1f%% | 均值亮度 %.1f",
+                 target_item ? target_item->name : "弹窗",
+                 res.bg_info.reason[0] ? res.bg_info.reason : "未找到符合尺寸与颜色的按钮",
+                 res.feature_info.feature_desc[0] ? res.feature_info.feature_desc : "未匹配", res.feature_info.feature_score,
+                 res.bg_info.dark_ratio * 100.0f, res.bg_info.high_chroma_ratio * 100.0f, res.bg_info.mean_brightness);
     }
 
     SetWindowTextW(g_hStatusText, log_buf);
     if (g_hCanvas) InvalidateRect(g_hCanvas, NULL, FALSE);
 }
 
-/* 保存当前弹窗扫描区域配置 */
-static void save_popup_config_to_json(void) {
-    int pt_idx = (int)SendMessageW(g_hPopupTypeCb, CB_GETCURSEL, 0, 0);
-    L2MPopupType ptype = (pt_idx == 0) ? L2M_POPUP_TOP_LEFT :
-                         ((pt_idx == 1) ? L2M_POPUP_CENTER : L2M_POPUP_FULLSCREEN);
+/* 自动查找或绑定游戏窗口句柄 */
+static BOOL CALLBACK EnumFindGameWndProc(HWND hwnd, LPARAM lParam) {
+    if (!IsWindowVisible(hwnd)) return TRUE;
+    wchar_t title[256];
+    GetWindowTextW(hwnd, title, sizeof(title)/sizeof(wchar_t));
+    if (wcslen(title) == 0) return TRUE;
 
-    wchar_t rect_str_w[64];
-    GetWindowTextW(g_hPopupRectTxt, rect_str_w, sizeof(rect_str_w)/sizeof(wchar_t));
-    int rx = 0, ry = 0, rw = 0, rh = 0;
-    if (swscanf(rect_str_w, L"%d, %d, %d, %d", &rx, &ry, &rw, &rh) != 4) {
-        MessageBoxW(g_hDebugWnd, L"扫描区域格式错误！格式应为: X, Y, Width, Height", L"错误", MB_OK | MB_ICONWARNING);
+    RECT rc;
+    GetClientRect(hwnd, &rc);
+    int w = rc.right - rc.left;
+    int h = rc.bottom - rc.top;
+
+    if (wcsstr(title, L"Lineage2M") || wcsstr(title, L"PURPLE") || wcsstr(title, L"L2M") ||
+        (w >= 900 && w <= 1000 && h >= 500 && h <= 600)) {
+        HWND* pFound = (HWND*)lParam;
+        *pFound = hwnd;
+        return FALSE; /* 停止枚举 */
+    }
+    return TRUE;
+}
+
+static HWND get_active_or_first_game_window(void) {
+    if (g_hTargetGameWnd && IsWindow(g_hTargetGameWnd)) return g_hTargetGameWnd;
+    HWND found = NULL;
+    EnumWindows(EnumFindGameWndProc, (LPARAM)&found);
+    if (found) {
+        g_hTargetGameWnd = found;
+        update_debug_window_title();
+    }
+    return g_hTargetGameWnd;
+}
+
+/* 保存或更新弹窗配置到当前 JSON 配置文件 (支持新名称新建或修改已有名称) */
+static void save_popup_config_to_json(void) {
+    wchar_t wname[64] = {0};
+    wchar_t wdesc[128] = {0};
+    wchar_t wrect[64] = {0};
+
+    GetWindowTextW(g_hPopupNameTxt, wname, 64);
+    GetWindowTextW(g_hPopupDescTxt, wdesc, 128);
+    GetWindowTextW(g_hPopupRectTxt, wrect, 64);
+
+    if (wcslen(wname) == 0) {
+        MessageBoxW(g_hDebugWnd, L"弹窗名称标识(Key)不能为空！", L"错误", MB_OK | MB_ICONWARNING);
+        SetFocus(g_hPopupNameTxt);
         return;
     }
 
-    L2MRect roi = {rx, ry, rw, rh};
-    l2m_cbt_set_popup_roi(&g_current_cbt_cfg, ptype, &roi);
+    int rx = 0, ry = 0, rw = 0, rh = 0;
+    if (swscanf(wrect, L"%d, %d, %d, %d", &rx, &ry, &rw, &rh) != 4 || rw <= 0 || rh <= 0) {
+        MessageBoxW(g_hDebugWnd, L"扫描区域格式错误！格式应为: X, Y, Width, Height 且宽高大于0", L"错误", MB_OK | MB_ICONWARNING);
+        return;
+    }
+
+    char name_utf8[64] = {0};
+    char desc_utf8[128] = {0};
+    WideCharToMultiByte(CP_UTF8, 0, wname, -1, name_utf8, sizeof(name_utf8), NULL, NULL);
+    WideCharToMultiByte(CP_UTF8, 0, wdesc, -1, desc_utf8, sizeof(desc_utf8), NULL, NULL);
+
+    /* 获取选中的关联 CBT 采样点 */
+    char linked_cbt_utf8[64] = {0};
+    if (g_hPopupLinkedCbtCb) {
+        int cb_idx = (int)SendMessageW(g_hPopupLinkedCbtCb, CB_GETCURSEL, 0, 0);
+        if (cb_idx > 0 && cb_idx <= g_current_cbt_cfg.count) {
+            snprintf(linked_cbt_utf8, sizeof(linked_cbt_utf8), "%s", g_current_cbt_cfg.points[cb_idx - 1].key);
+        }
+    }
+
+    /* 查找是否已有该名称的弹窗项 */
+    L2MPopupItem item;
+    memset(&item, 0, sizeof(item));
+    if (l2m_cbt_get_popup_item(&g_current_cbt_cfg, name_utf8, &item)) {
+        /* 已存在：更新关键属性与关联 CBT */
+        snprintf(item.desc, sizeof(item.desc), "%s", desc_utf8);
+        item.x = rx; item.y = ry; item.width = rw; item.height = rh;
+        snprintf(item.linked_cbt_key, sizeof(item.linked_cbt_key), "%s", linked_cbt_utf8);
+    } else {
+        /* 全新创建：初始化默认特征开关与几何参数 */
+        snprintf(item.name, sizeof(item.name), "%s", name_utf8);
+        snprintf(item.desc, sizeof(item.desc), "%s", desc_utf8[0] ? desc_utf8 : "自定义弹窗");
+        item.enabled = true;
+        item.x = rx; item.y = ry; item.width = rw; item.height = rh;
+        snprintf(item.linked_cbt_key, sizeof(item.linked_cbt_key), "%s", linked_cbt_utf8);
+
+        item.min_dark_ratio = 0.18f;
+        item.max_brightness = 120.0f;
+        item.max_high_chroma = 0.35f;
+        item.btn_min_w = 30; item.btn_max_w = 240;
+        item.btn_min_h = 16; item.btn_max_h = 65;
+        item.btn_ideal_aspect = 2.8f;
+        item.has_btn_rgb = true;
+        item.btn_target_rgb = (L2MRGB){215, 105, 12};
+        item.btn_min_fill_ratio = 0.30f;
+        item.check_panel = true;
+        item.check_title = true;
+        item.check_text_lines = true;
+        item.check_close_cross = true;
+    }
+
+    l2m_cbt_set_popup_item(&g_current_cbt_cfg, &item);
 
     if (l2m_cbt_save(&g_current_cbt_cfg)) {
-        const char* pt_name = (ptype == L2M_POPUP_TOP_LEFT) ? "top_left" :
-                              ((ptype == L2M_POPUP_CENTER) ? "center" : "fullscreen");
-        wchar_t tip[256];
+        refresh_popup_list_ui(name_utf8);
+        wchar_t tip[512];
         swprintf(tip, sizeof(tip)/sizeof(wchar_t),
-                 L"✅ 弹窗类型【%hs】扫描区域 (%d, %d, %d, %d) 已成功保存至 %hs.json 配置文件！",
-                 pt_name, rx, ry, rw, rh, g_current_cbt_cfg.region);
+                 L"✅ 弹窗【%hs】(关联CBT: %hs) 区域 (%d, %d, %d, %d) 已成功保存至 %hs.json 配置文件！",
+                 item.name, item.linked_cbt_key[0] ? item.linked_cbt_key : "无",
+                 rx, ry, rw, rh, g_current_cbt_cfg.region);
         SetWindowTextW(g_hStatusText, tip);
         MessageBoxW(g_hDebugWnd, tip, L"弹窗配置保存成功", MB_OK | MB_ICONINFORMATION);
     } else {
-        MessageBoxW(g_hDebugWnd, L"❌ 保存弹窗配置失败，请检查文件权限！", L"错误", MB_OK | MB_ICONERROR);
+        MessageBoxW(g_hDebugWnd, L"❌ 保存弹窗配置失败，请检查文件写入权限！", L"错误", MB_OK | MB_ICONERROR);
+    }
+}
+
+/* 删除当前选中的弹窗配置 */
+static void delete_popup_item_from_json(void) {
+    wchar_t wname[64] = {0};
+    GetWindowTextW(g_hPopupNameTxt, wname, 64);
+    if (wcslen(wname) == 0) return;
+
+    wchar_t confirm_msg[256];
+    swprintf(confirm_msg, sizeof(confirm_msg)/sizeof(wchar_t),
+             L"确定要从 %hs.json 配置文件中永久删除弹窗【%ls】吗？",
+             g_current_cbt_cfg.region, wname);
+    if (MessageBoxW(g_hDebugWnd, confirm_msg, L"确认删除", MB_YESNO | MB_ICONQUESTION) != IDYES) return;
+
+    char name_utf8[64] = {0};
+    WideCharToMultiByte(CP_UTF8, 0, wname, -1, name_utf8, sizeof(name_utf8), NULL, NULL);
+
+    if (l2m_cbt_delete_popup_item(&g_current_cbt_cfg, name_utf8)) {
+        l2m_cbt_save(&g_current_cbt_cfg);
+        refresh_popup_list_ui(NULL);
+        SetWindowTextW(g_hStatusText, L"弹窗配置已从 JSON 文件中成功删除。");
     }
 }
 
 /* 模拟点击测试 */
 static void execute_test_click(void) {
     if (!g_has_popup_overlay) {
-        MessageBoxW(g_hDebugWnd, L"请先执行【🔍 识别弹窗】！", L"提示", MB_OK | MB_ICONINFORMATION);
+        MessageBoxW(g_hDebugWnd, L"请先执行【🔍 识别弹窗】以定位关闭按钮与勾选框！", L"提示", MB_OK | MB_ICONINFORMATION);
         return;
     }
 
-    l2m_post_popup_dismiss_flow(
-        g_hTargetGameWnd,
+    HWND hGame = get_active_or_first_game_window();
+    if (!hGame) {
+        int r = MessageBoxW(g_hDebugWnd,
+                            L"未检测到在线游戏窗口(Lineage2M/PURPLE)。\r\n"
+                            L"是否使用真实物理鼠标直接向屏幕当前物理位置发送点击测试？",
+                            L"未绑定游戏窗口", MB_YESNO | MB_ICONQUESTION);
+        if (r != IDYES) return;
+        hGame = GetDesktopWindow();
+    }
+
+    bool click_ok = l2m_post_popup_dismiss_flow(
+        hGame,
         g_overlay_has_cb ? g_overlay_cb_pt.x : 0,
         g_overlay_has_cb ? g_overlay_cb_pt.y : 0,
         g_overlay_btn_pt.x, g_overlay_btn_pt.y,
         250
     );
 
-    MessageBoxW(g_hDebugWnd, L"已成功向目标窗口下发【勾选+确认关闭】物理鼠标两步操作！", L"点击完成", MB_OK | MB_ICONINFORMATION);
+    wchar_t tip[256];
+    swprintf(tip, sizeof(tip)/sizeof(wchar_t),
+             L"🖱️ 已发送模拟点击: 按钮目标(%d, %d)%ls (状态: %ls)",
+             g_overlay_btn_pt.x, g_overlay_btn_pt.y,
+             g_overlay_has_cb ? L" | 已自动勾选不再显示" : L"",
+             click_ok ? L"✅ 成功投递" : L"❌ 失败");
+    SetWindowTextW(g_hStatusText, tip);
 }
 
 /* 执行血条计算测试 */
@@ -1098,70 +1326,74 @@ static LRESULT CALLBACK DebugWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
             wcZ.lpszClassName = L"L2M_Zoom_View";
             RegisterClassW(&wcZ);
 
-            /* ===== 区域 1: 弹窗与截图控制 ===== */
-            CreateWindowW(L"STATIC", L"弹窗类型:", WS_CHILD | WS_VISIBLE, 15, 12, 65, 20, hWnd, NULL, NULL, NULL);
-            g_hPopupTypeCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 85, 9, 230, 200, hWnd, (HMENU)ID_CB_POPUP_TYPE, NULL, NULL);
-            SendMessageW(g_hPopupTypeCb, CB_ADDSTRING, 0, (LPARAM)L"左上角提示弹窗 (双按钮/勾选)");
-            SendMessageW(g_hPopupTypeCb, CB_ADDSTRING, 0, (LPARAM)L"中间标准模态弹窗");
-            SendMessageW(g_hPopupTypeCb, CB_ADDSTRING, 0, (LPARAM)L"全屏活动/宣传弹窗");
-            SendMessageW(g_hPopupTypeCb, CB_SETCURSEL, 0, 0);
+            /* ===== 区域 1: 命名弹窗管理与截图控制 ===== */
+            CreateWindowW(L"STATIC", L"弹窗选择:", WS_CHILD | WS_VISIBLE, 15, 10, 60, 20, hWnd, NULL, NULL, NULL);
+            g_hPopupTypeCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 75, 7, 210, 250, hWnd, (HMENU)ID_CB_POPUP_TYPE, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"➕ 新建", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 290, 6, 70, 25, hWnd, (HMENU)ID_BTN_NEW_POPUP, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🗑️ 删除", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 365, 6, 75, 25, hWnd, (HMENU)ID_BTN_DEL_POPUP, NULL, NULL);
 
-            CreateWindowW(L"BUTTON", L"💾 保存弹窗", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 325, 8, 125, 26, hWnd, (HMENU)ID_BTN_SAVE_POPUP, NULL, NULL);
+            CreateWindowW(L"STATIC", L"弹窗标识:", WS_CHILD | WS_VISIBLE, 15, 36, 60, 20, hWnd, NULL, NULL, NULL);
+            g_hPopupNameTxt = CreateWindowW(L"EDIT", L"center_modal", WS_CHILD | WS_VISIBLE | WS_BORDER, 75, 34, 150, 22, hWnd, (HMENU)ID_TXT_POPUP_NAME, NULL, NULL);
+            CreateWindowW(L"STATIC", L"描述:", WS_CHILD | WS_VISIBLE, 232, 36, 35, 20, hWnd, NULL, NULL, NULL);
+            g_hPopupDescTxt = CreateWindowW(L"EDIT", L"中间标准模态确认弹窗", WS_CHILD | WS_VISIBLE | WS_BORDER, 270, 34, 170, 22, hWnd, (HMENU)ID_TXT_POPUP_DESC, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"扫描区域 ROI:", WS_CHILD | WS_VISIBLE, 15, 41, 85, 20, hWnd, NULL, NULL, NULL);
-            g_hPopupRectTxt = CreateWindowW(L"EDIT", L"10, 10, 260, 150", WS_CHILD | WS_VISIBLE | WS_BORDER, 105, 39, 140, 22, hWnd, (HMENU)ID_TXT_POPUP_RECT, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"🔍 识别弹窗", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 255, 37, 95, 26, hWnd, (HMENU)ID_BTN_DETECT_POPUP, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"🖱️ 模拟关闭", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 355, 37, 95, 26, hWnd, (HMENU)ID_BTN_TEST_CLICK, NULL, NULL);
+            CreateWindowW(L"STATIC", L"扫描 ROI:", WS_CHILD | WS_VISIBLE, 15, 63, 60, 20, hWnd, NULL, NULL, NULL);
+            g_hPopupRectTxt = CreateWindowW(L"EDIT", L"280, 150, 400, 240", WS_CHILD | WS_VISIBLE | WS_BORDER, 75, 61, 130, 22, hWnd, (HMENU)ID_TXT_POPUP_RECT, NULL, NULL);
+            CreateWindowW(L"STATIC", L"关联CBT:", WS_CHILD | WS_VISIBLE, 212, 63, 55, 20, hWnd, NULL, NULL, NULL);
+            g_hPopupLinkedCbtCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 270, 60, 170, 250, hWnd, (HMENU)ID_CB_POPUP_LINK_CBT, NULL, NULL);
 
-            /* 图像捕获、保存截图与载入图片按钮排 (宽度充足，绝不遮挡) */
-            CreateWindowW(L"BUTTON", L"📸 捕获实时画面", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 68, 140, 28, hWnd, (HMENU)ID_BTN_CAPTURE, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"💾 保存当前截图", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 160, 68, 140, 28, hWnd, (HMENU)ID_BTN_SAVE_IMAGE, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"📂 载入本地图片", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 305, 68, 145, 28, hWnd, (HMENU)ID_BTN_LOAD_IMAGE, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🔍 识别弹窗", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 90, 100, 26, hWnd, (HMENU)ID_BTN_DETECT_POPUP, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"💾 保存/更新", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 120, 90, 105, 26, hWnd, (HMENU)ID_BTN_SAVE_POPUP, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🖱️ 模拟关闭", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 230, 90, 100, 26, hWnd, (HMENU)ID_BTN_TEST_CLICK, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"📸 捕获画面", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 335, 90, 105, 26, hWnd, (HMENU)ID_BTN_CAPTURE, NULL, NULL);
+
+            CreateWindowW(L"BUTTON", L"💾 保存当前截图", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 120, 210, 26, hWnd, (HMENU)ID_BTN_SAVE_IMAGE, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"📂 载入本地图片", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 230, 120, 210, 26, hWnd, (HMENU)ID_BTN_LOAD_IMAGE, NULL, NULL);
 
             /* ===== 区域 2: 多语言 CBT 采样点管理 ===== */
-            CreateWindowW(L"STATIC", L"🌐 语言地区:", WS_CHILD | WS_VISIBLE, 15, 105, 75, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtRegionCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 90, 102, 65, 200, hWnd, (HMENU)ID_CB_CBT_REGION, NULL, NULL);
+            CreateWindowW(L"STATIC", L"🌐 语言:", WS_CHILD | WS_VISIBLE, 15, 153, 45, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtRegionCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 60, 150, 60, 200, hWnd, (HMENU)ID_CB_CBT_REGION, NULL, NULL);
             SendMessageW(g_hCbtRegionCb, CB_ADDSTRING, 0, (LPARAM)L"CN");
             SendMessageW(g_hCbtRegionCb, CB_ADDSTRING, 0, (LPARAM)L"EN");
             SendMessageW(g_hCbtRegionCb, CB_ADDSTRING, 0, (LPARAM)L"JP");
             SendMessageW(g_hCbtRegionCb, CB_ADDSTRING, 0, (LPARAM)L"RU");
             SendMessageW(g_hCbtRegionCb, CB_SETCURSEL, 0, 0);
 
-            CreateWindowW(L"STATIC", L"🎯 采样特征点:", WS_CHILD | WS_VISIBLE, 165, 105, 85, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtPointsCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 255, 102, 195, 450, hWnd, (HMENU)ID_CB_CBT_POINTS, NULL, NULL);
+            CreateWindowW(L"STATIC", L"🎯 CBT点位:", WS_CHILD | WS_VISIBLE, 125, 153, 70, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtPointsCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 195, 150, 245, 450, hWnd, (HMENU)ID_CB_CBT_POINTS, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"点位名称 (Key):", WS_CHILD | WS_VISIBLE, 15, 133, 100, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtKeyTxt = CreateWindowW(L"EDIT", L"home_scroll_button_no_energomode", WS_CHILD | WS_VISIBLE | WS_BORDER, 115, 131, 335, 22, hWnd, (HMENU)ID_TXT_CBT_KEY, NULL, NULL);
+            CreateWindowW(L"STATIC", L"点位Key:", WS_CHILD | WS_VISIBLE, 15, 180, 58, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtKeyTxt = CreateWindowW(L"EDIT", L"home_scroll_button_no_energomode", WS_CHILD | WS_VISIBLE | WS_BORDER, 75, 178, 365, 22, hWnd, (HMENU)ID_TXT_CBT_KEY, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"坐标 X, Y:", WS_CHILD | WS_VISIBLE, 15, 160, 65, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtPosTxt = CreateWindowW(L"EDIT", L"217, 487", WS_CHILD | WS_VISIBLE | WS_BORDER, 80, 158, 85, 22, hWnd, (HMENU)ID_TXT_CBT_POS, NULL, NULL);
+            CreateWindowW(L"STATIC", L"坐标:", WS_CHILD | WS_VISIBLE, 15, 206, 35, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtPosTxt = CreateWindowW(L"EDIT", L"217, 487", WS_CHILD | WS_VISIBLE | WS_BORDER, 50, 204, 75, 22, hWnd, (HMENU)ID_TXT_CBT_POS, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"RGB 目标:", WS_CHILD | WS_VISIBLE, 175, 160, 65, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtRgbTxt = CreateWindowW(L"EDIT", L"174, 149, 130", WS_CHILD | WS_VISIBLE | WS_BORDER, 240, 158, 105, 22, hWnd, (HMENU)ID_TXT_CBT_RGB, NULL, NULL);
+            CreateWindowW(L"STATIC", L"RGB:", WS_CHILD | WS_VISIBLE, 130, 206, 30, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtRgbTxt = CreateWindowW(L"EDIT", L"174, 149, 130", WS_CHILD | WS_VISIBLE | WS_BORDER, 162, 204, 98, 22, hWnd, (HMENU)ID_TXT_CBT_RGB, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"容差:", WS_CHILD | WS_VISIBLE, 355, 160, 35, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtTolTxt = CreateWindowW(L"EDIT", L"12", WS_CHILD | WS_VISIBLE | WS_BORDER, 390, 158, 60, 22, hWnd, (HMENU)ID_TXT_CBT_TOL, NULL, NULL);
+            CreateWindowW(L"STATIC", L"容差:", WS_CHILD | WS_VISIBLE, 265, 206, 35, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtTolTxt = CreateWindowW(L"EDIT", L"12", WS_CHILD | WS_VISIBLE | WS_BORDER, 300, 204, 40, 22, hWnd, (HMENU)ID_TXT_CBT_TOL, NULL, NULL);
 
-            CreateWindowW(L"BUTTON", L"🎯 填入拾取点", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 186, 140, 28, hWnd, (HMENU)ID_BTN_CBT_APPLY_PT, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"🔬 比对测试", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 160, 186, 140, 28, hWnd, (HMENU)ID_BTN_CBT_TEST_PT, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"🩸 测试血条", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 305, 186, 145, 28, hWnd, (HMENU)ID_BTN_TEST_HP, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🩸 血条", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 345, 202, 95, 25, hWnd, (HMENU)ID_BTN_TEST_HP, NULL, NULL);
 
-            CreateWindowW(L"BUTTON", L"💾 保存特征点", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 218, 140, 28, hWnd, (HMENU)ID_BTN_CBT_SAVE_JSON, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"🗑️ 删除此点位", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 160, 218, 140, 28, hWnd, (HMENU)ID_BTN_CBT_DEL_PT, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🎯 填入拾取", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 232, 100, 26, hWnd, (HMENU)ID_BTN_CBT_APPLY_PT, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🔬 比对测试", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 120, 232, 100, 26, hWnd, (HMENU)ID_BTN_CBT_TEST_PT, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"💾 保存特征", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 225, 232, 105, 26, hWnd, (HMENU)ID_BTN_CBT_SAVE_JSON, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🗑️ 删除点位", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 335, 232, 105, 26, hWnd, (HMENU)ID_BTN_CBT_DEL_PT, NULL, NULL);
 
             /* ===== 区域 3: 采样点 11x11 像素放大镜 ===== */
-            g_hZoomInfoLbl = CreateWindowW(L"STATIC", L"🔍 放大镜 (10x 放大) - 采样中心: 未选择", WS_CHILD | WS_VISIBLE, 15, 252, 435, 20, hWnd, NULL, NULL, NULL);
-            g_hZoomCanvas = CreateWindowW(L"L2M_Zoom_View", L"", WS_CHILD | WS_VISIBLE | WS_BORDER, 15, 274, 110, 110, hWnd, (HMENU)ID_ZOOM_VIEW, NULL, NULL);
+            g_hZoomInfoLbl = CreateWindowW(L"STATIC", L"🔍 放大镜 (10x 放大) - 采样中心: 未选择", WS_CHILD | WS_VISIBLE, 15, 263, 425, 20, hWnd, NULL, NULL, NULL);
+            g_hZoomCanvas = CreateWindowW(L"L2M_Zoom_View", L"", WS_CHILD | WS_VISIBLE | WS_BORDER, 15, 285, 95, 95, hWnd, (HMENU)ID_ZOOM_VIEW, NULL, NULL);
 
-            g_hColorInfoLbl = CreateWindowW(L"STATIC", L"📍 鼠标取点: 点击右侧画面任意位置拾取坐标与 RGB", WS_CHILD | WS_VISIBLE, 135, 274, 315, 35, hWnd, NULL, NULL, NULL);
+            g_hColorInfoLbl = CreateWindowW(L"STATIC", L"📍 鼠标取点: 点击右侧画面任意位置拾取坐标与 RGB", WS_CHILD | WS_VISIBLE, 120, 285, 320, 32, hWnd, NULL, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"【检测与比对诊断报告】:", WS_CHILD | WS_VISIBLE, 135, 315, 160, 18, hWnd, NULL, NULL, NULL);
+            CreateWindowW(L"STATIC", L"【检测与比对诊断报告】:", WS_CHILD | WS_VISIBLE, 120, 322, 160, 18, hWnd, NULL, NULL, NULL);
             g_hStatusText = CreateWindowW(L"EDIT", L"就绪。可进行实时画面捕获、载入本地图片、放大镜观察与特征点微调。",
                                           WS_CHILD | WS_VISIBLE | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
-                                          15, 390, 435, 160, hWnd, (HMENU)ID_TXT_STATUS, NULL, NULL);
+                                          15, 345, 425, 205, hWnd, (HMENU)ID_TXT_STATUS, NULL, NULL);
 
-            /* 右侧 960x540 大画板 (向右平移至 x=465) */
-            g_hCanvas = CreateWindowW(L"L2M_Canvas_View", L"", WS_CHILD | WS_VISIBLE | WS_BORDER, 465, 10, 960, 540, hWnd, (HMENU)ID_CANVAS_VIEW, NULL, NULL);
+            /* 右侧 960x540 大画板 (向右平移至 x=455) */
+            g_hCanvas = CreateWindowW(L"L2M_Canvas_View", L"", WS_CHILD | WS_VISIBLE | WS_BORDER, 455, 10, 960, 540, hWnd, (HMENU)ID_CANVAS_VIEW, NULL, NULL);
 
             apply_debug_ui_font(hWnd, g_hFontDebugUI);
 
@@ -1184,12 +1416,17 @@ static LRESULT CALLBACK DebugWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
                 execute_popup_detection();
             } else if (id == ID_BTN_SAVE_POPUP) {
                 save_popup_config_to_json();
+            } else if (id == ID_BTN_NEW_POPUP) {
+                create_new_popup_item_ui();
+            } else if (id == ID_BTN_DEL_POPUP) {
+                delete_popup_item_from_json();
             } else if (id == ID_BTN_TEST_CLICK) {
                 execute_test_click();
             } else if (id == ID_BTN_TEST_HP) {
                 execute_hp_test();
             } else if (id == ID_CB_POPUP_TYPE && HIWORD(wParam) == CBN_SELCHANGE) {
-                update_popup_roi_display();
+                int idx = (int)SendMessageW(g_hPopupTypeCb, CB_GETCURSEL, 0, 0);
+                sync_popup_item_selection(idx);
             } else if (id == ID_CB_CBT_REGION && HIWORD(wParam) == CBN_SELCHANGE) {
                 int idx = (int)SendMessageW(g_hCbtRegionCb, CB_GETCURSEL, 0, 0);
                 const char* rlist[] = {"CN", "EN", "JP", "RU"};

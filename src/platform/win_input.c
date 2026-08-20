@@ -128,67 +128,108 @@ bool l2m_send_key_press(HWND hwnd, WORD vk_code) {
     return true;
 }
 
-/* 物理级鼠标移动与点击 */
+/* 物理级鼠标移动与硬件点击 (DirectInput / RawInput / DirectX 3D 游戏兼容) */
 static void execute_physical_mouse_click(int abs_x, int abs_y) {
+    int screen_w = GetSystemMetrics(SM_CXSCREEN);
+    int screen_h = GetSystemMetrics(SM_CYSCREEN);
+    if (screen_w <= 1 || screen_h <= 1) return;
+
+    /* 转换为 0~65535 归一化绝对坐标 */
+    DWORD norm_x = (DWORD)(((int64_t)abs_x * 65535) / (screen_w - 1));
+    DWORD norm_y = (DWORD)(((int64_t)abs_y * 65535) / (screen_h - 1));
+
     /* 1. 移动物理光标至目标绝对屏幕坐标 */
+    INPUT input_move;
+    memset(&input_move, 0, sizeof(INPUT));
+    input_move.type = INPUT_MOUSE;
+    input_move.mi.dx = norm_x;
+    input_move.mi.dy = norm_y;
+    input_move.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
+    SendInput(1, &input_move, sizeof(INPUT));
     SetCursorPos(abs_x, abs_y);
     Sleep(30);
 
-    /* 2. 发送硬件级鼠标按下事件 */
+    /* 2. 发送硬件级鼠标按下事件 (SendInput 硬件注入 + mouse_event 驱动辅助) */
     INPUT input_down;
     memset(&input_down, 0, sizeof(INPUT));
     input_down.type = INPUT_MOUSE;
-    input_down.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+    input_down.mi.dx = norm_x;
+    input_down.mi.dy = norm_y;
+    input_down.mi.dwFlags = MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_ABSOLUTE;
     SendInput(1, &input_down, sizeof(INPUT));
-
     mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
 
-    Sleep(50);
+    /* 3. 充足按压保持时间 (80ms)，跨越 3D 游戏 60FPS 帧渲染循环 */
+    Sleep(80);
 
-    /* 3. 发送硬件级鼠标抬起事件 */
+    /* 4. 发送硬件级鼠标抬起事件 */
     INPUT input_up;
     memset(&input_up, 0, sizeof(INPUT));
     input_up.type = INPUT_MOUSE;
-    input_up.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+    input_up.mi.dx = norm_x;
+    input_up.mi.dy = norm_y;
+    input_up.mi.dwFlags = MOUSEEVENTF_LEFTUP | MOUSEEVENTF_ABSOLUTE;
     SendInput(1, &input_up, sizeof(INPUT));
-
     mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
+    Sleep(30);
 }
 
 bool l2m_post_mouse_click(HWND hwnd, int32_t client_x, int32_t client_y) {
     if (!hwnd || !IsWindow(hwnd)) return false;
 
-    /* 1. 强力激活并置前窗口 */
+    /* 1. 强力激活并置前目标游戏窗口 */
     l2m_force_activate_window(hwnd);
 
-    /* 2. 转换为桌面绝对物理屏幕坐标 */
-    POINT screen_pt = {client_x, client_y};
+    /* 2. 自适应换算客户区物理像素 (将 960x540 标准参考系自适应映射到真实窗口客户区) */
+    RECT rcClient;
+    GetClientRect(hwnd, &rcClient);
+    int real_w = rcClient.right - rcClient.left;
+    int real_h = rcClient.bottom - rcClient.top;
+
+    int actual_x = client_x;
+    int actual_y = client_y;
+    if (real_w > 0 && real_h > 0 && (real_w != 960 || real_h != 540)) {
+        actual_x = (int)(((int64_t)client_x * real_w) / 960);
+        actual_y = (int)(((int64_t)client_y * real_h) / 540);
+    }
+
+    /* 3. 转换为桌面绝对物理屏幕坐标 */
+    POINT screen_pt = {actual_x, actual_y};
     ClientToScreen(hwnd, &screen_pt);
 
-    /* 3. 探测坐标处接收输入的实际子窗口 */
-    POINT client_pt = {client_x, client_y};
-    HWND hTarget = ChildWindowFromPoint(hwnd, client_pt);
+    /* 4. 探测坐标处接收输入的实际子窗口 (处理虚幻引擎/DirectX 内部渲染子窗口) */
+    POINT client_pt = {actual_x, actual_y};
+    HWND hTarget = RealChildWindowFromPoint(hwnd, client_pt);
+    if (!hTarget || !IsWindow(hTarget)) {
+        hTarget = ChildWindowFromPoint(hwnd, client_pt);
+    }
     if (!hTarget || !IsWindow(hTarget)) {
         hTarget = hwnd;
     }
 
-    LPARAM lparam = MAKELPARAM((WORD)client_x, (WORD)client_y);
+    /* 计算相对于目标子窗口客户区的相对坐标 */
+    POINT child_pt = {actual_x, actual_y};
+    if (hTarget != hwnd) {
+        MapWindowPoints(hwnd, hTarget, &child_pt, 1);
+    }
+    LPARAM lparam_target = MAKELPARAM((WORD)child_pt.x, (WORD)child_pt.y);
+    LPARAM lparam_parent = MAKELPARAM((WORD)actual_x, (WORD)actual_y);
 
-    /* 4. 后台消息直发 (向主窗口和具体子窗口双重投递) */
+    /* 5. 后台消息直发 (向子窗口与父窗口双重投递) */
     PostMessageW(hTarget, WM_SETCURSOR, (WPARAM)hTarget, MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
-    PostMessageW(hTarget, WM_MOUSEMOVE, 0, lparam);
-    PostMessageW(hTarget, WM_LBUTTONDOWN, MK_LBUTTON, lparam);
-    Sleep(30);
-    PostMessageW(hTarget, WM_LBUTTONUP, 0, lparam);
+    PostMessageW(hTarget, WM_MOUSEMOVE, 0, lparam_target);
+    PostMessageW(hTarget, WM_LBUTTONDOWN, MK_LBUTTON, lparam_target);
+    Sleep(50);
+    PostMessageW(hTarget, WM_LBUTTONUP, 0, lparam_target);
 
     if (hTarget != hwnd) {
-        PostMessageW(hwnd, WM_MOUSEMOVE, 0, lparam);
-        PostMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, lparam);
-        Sleep(30);
-        PostMessageW(hwnd, WM_LBUTTONUP, 0, lparam);
+        PostMessageW(hwnd, WM_MOUSEMOVE, 0, lparam_parent);
+        PostMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, lparam_parent);
+        Sleep(50);
+        PostMessageW(hwnd, WM_LBUTTONUP, 0, lparam_parent);
     }
 
-    /* 5. 执行真实的物理级光标移动与硬件点击，确保 DirectX / PURPLE 游戏 100% 响应 */
+    /* 6. 执行真实的硬件级物理光标移动与点击注入，确保 DirectInput / PURPLE 100% 响应 */
     execute_physical_mouse_click(screen_pt.x, screen_pt.y);
 
     return true;

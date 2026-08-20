@@ -82,6 +82,7 @@ typedef enum {
 typedef struct {
     bool is_valid;              /* 背景色是否符合弹窗暗底特征 */
     float dark_ratio;           /* 暗色像素占比 (0.0 ~ 1.0) */
+    float high_chroma_ratio;    /* 高彩度/高饱和自然色彩干扰占比 (0.0 ~ 1.0) */
     float mean_brightness;      /* 区域整体平均亮度 (0.0 ~ 255.0) */
     L2MRGB mean_rgb;            /* 区域平均 RGB 颜色 */
     int32_t dark_pixels;        /* 暗色像素数量 */
@@ -89,17 +90,38 @@ typedef struct {
     char reason[64];            /* 判定说明或失败原因 */
 } L2MPopupBgInfo;
 
+/* 弹窗多维结构特征分析结果 */
+typedef struct {
+    bool has_panel;             /* 是否检测到清晰的弹窗暗底面板矩形 */
+    L2MRect panel_rect;         /* 弹窗面板边界区域 */
+    bool has_title_bar;         /* 顶部是否检测到标题文字/金色饰条特征 */
+    float title_contrast;       /* 标题区对比度/清晰度得分 (0.0 ~ 100.0) */
+    bool has_content_text;      /* 中间内容区是否检测到文字行水平条纹纹理 */
+    int32_t text_line_count;    /* 检测到的提示文本行数 */
+    bool has_close_cross;       /* 右上角/面板边缘是否检测到关闭叉号(X) */
+    L2MPoint close_cross_pos;   /* 关闭叉号(X)坐标 */
+    float feature_score;        /* 弹窗结构特征综合置信度得分 (0.0 ~ 100.0) */
+    char feature_desc[128];     /* 特征检测摘要说明 */
+} L2MPopupFeatureInfo;
+
 /* 弹窗检测完整结果 */
 typedef struct {
     bool detected;              /* 是否成功检测到弹窗 */
-    L2MPopupType popup_type;    /* 检测到的弹窗类型 */
+    char popup_name[64];        /* 检测到的弹窗名称 (如 "top_left_tip", "center_modal", "resurrect_confirm") */
+    L2MPopupType popup_type;    /* 弹窗类型 (向下兼容枚举) */
     L2MPoint button_pos;        /* 确认/关闭按钮点击中心绝对坐标 */
     L2MRect button_bbox;        /* 按钮外接矩形 */
+    float button_aspect_ratio;  /* 按钮宽高比 (width / height) */
+    L2MRGB button_mean_rgb;     /* 按钮内部区域实测平均 RGB */
+    float button_fill_ratio;    /* 按钮特征色彩在区域内部的填充纯度 (0.0 ~ 1.0) */
+    float size_score;           /* 按钮尺寸与几何形态匹配得分 */
+    float color_score;          /* 按钮颜色匹配得分 */
     bool has_checkbox;          /* 是否存在“不再显示该提示”勾选框 */
     L2MPoint checkbox_pos;      /* 勾选框点击坐标 */
     L2MRect scan_rect;          /* 扫描 ROI 区域 */
-    float score;                /* 识别置信度得分 */
+    float score;                /* 综合置信度得分 */
     L2MPopupBgInfo bg_info;     /* 背景色先验校验信息 */
+    L2MPopupFeatureInfo feature_info; /* 弹窗本体多维结构特征信息 */
     char desc[128];             /* 详细描述文本 */
 } L2MPopupResult;
 

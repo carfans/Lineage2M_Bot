@@ -1,22 +1,76 @@
 {
   "popup_scan_config": {
-    "top_left": {
+    "top_left_tip": {
+      "desc": "左上角提示弹窗(带不再显示)",
+      "enabled": true,
+      "linked_cbt_key": "home_scroll_button_no_energomode",
       "x": 25,
       "y": 54,
       "width": 235,
-      "height": 390
+      "height": 390,
+      "min_dark_ratio": 0.16,
+      "max_brightness": 125.0,
+      "max_high_chroma": 0.35,
+      "btn_min_w": 28,
+      "btn_max_w": 140,
+      "btn_min_h": 14,
+      "btn_max_h": 55,
+      "btn_ideal_aspect": 2.50,
+      "btn_target_rgb": [215, 105, 12],
+      "btn_min_fill_ratio": 0.30,
+      "check_panel": true,
+      "check_title": true,
+      "check_text_lines": true,
+      "check_close_cross": false,
+      "has_checkbox": true
     },
-    "center": {
+    "center_modal": {
+      "desc": "中间标准模态确认弹窗",
+      "enabled": true,
+      "linked_cbt_key": "",
       "x": 280,
       "y": 150,
       "width": 400,
-      "height": 240
+      "height": 240,
+      "min_dark_ratio": 0.20,
+      "max_brightness": 115.0,
+      "max_high_chroma": 0.35,
+      "btn_min_w": 40,
+      "btn_max_w": 220,
+      "btn_min_h": 18,
+      "btn_max_h": 65,
+      "btn_ideal_aspect": 3.00,
+      "btn_target_rgb": [215, 105, 12],
+      "btn_min_fill_ratio": 0.35,
+      "check_panel": true,
+      "check_title": true,
+      "check_text_lines": true,
+      "check_close_cross": true,
+      "has_checkbox": false
     },
-    "fullscreen": {
+    "fullscreen_event": {
+      "desc": "全屏活动与公告弹窗",
+      "enabled": true,
+      "linked_cbt_key": "",
       "x": 0,
       "y": 0,
       "width": 960,
-      "height": 540
+      "height": 540,
+      "min_dark_ratio": 0.14,
+      "max_brightness": 135.0,
+      "max_high_chroma": 0.35,
+      "btn_min_w": 30,
+      "btn_max_w": 260,
+      "btn_min_h": 16,
+      "btn_max_h": 70,
+      "btn_ideal_aspect": 2.80,
+      "btn_target_rgb": [215, 105, 12],
+      "btn_min_fill_ratio": 0.30,
+      "check_panel": false,
+      "check_title": true,
+      "check_text_lines": true,
+      "check_close_cross": true,
+      "has_checkbox": false
     }
   },
   "inventory_slot1_empty_1": {

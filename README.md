@@ -43,10 +43,12 @@ This project is completely decoupled from Python runtimes and bloated dependenci
   - **[🔬 Compare Test]**: Calculates real-time color delta against the live frame with diagnostic output `✅ Match Passed (Delta <= Tolerance)`;
   - **[💾 Save Feature Point]**: Persists modified or newly added sample points directly into the corresponding language JSON configuration;
   - **[🗑️ Delete Point]**: Removes the selected feature point from the configuration file.
-- **Popup Scan ROI Diagnostics & Persistence**:
-  - Covers top-left notification popups, center modal dialogs, and fullscreen event banners;
+- **Dynamic Named Popup Management & Multidimensional Diagnostics**:
+  - Full support for **Custom Named Popup Profiles** (not limited to fixed 3 categories), allowing users to create, rename, edit descriptions, and delete any popup profile (e.g., top-left tips, resurrection confirms, event banners);
+  - **Deep CBT Sampling Point Linking**: Enables popups to link specific CBT feature points, verifying real-time pixel RGB differences alongside geometric bounds;
   - Real-time HUD rendering: yellow scan ROI box, green confirmation button bounds, red click crosshair, and cyan checkbox bounds;
-  - **[💾 Save Popup]**: Saves adjusted ROI `(X, Y, Width, Height)` directly to the `popup_scan_config` section in the JSON file;
+  - **[💾 Save / Update]**: Supports one-click creation of new popup keys or updating existing ROI, descriptions, and linked CBTs back into JSON;
+  - **[➕ New] / [🗑️ Delete]**: Supports instant input reset and permanent deletion of popup profiles;
   - **[🖱️ Test Close]**: Simulates the two-step action: "Check box first, then click Confirm/Close".
 - **Screenshot Capture & Offline Image Debugging**:
   - **[💾 Save Screenshot]**: Prompts a save dialog to export the current frame as a lossless 24-bit BMP image;
@@ -58,7 +60,8 @@ This project is completely decoupled from Python runtimes and bloated dependenci
 - **Popup Defense & Button Recognition Engine ([`src/game/popup_engine.c`])**:
   - **Dark Background Heuristic**: Evaluates dark gray/blue pixel ratios (threshold >= 45%) and average luminance (< 90) to eliminate false positives in normal gameplay scenes;
   - **Button Color & Connected-Component Analysis**: Accurately detects orange confirm/jump buttons (RGB `[220, 115, 10]`) and gray close buttons (RGB `[80, 85, 90]`);
-  - **"Do Not Show Again" Checkbox Locator**: Intelligent corner detection to locate the exact center for checking.
+  - **"Do Not Show Again" Checkbox Locator**: Intelligent corner detection to locate the exact center for checking;
+  - **Full Popup Automated Inspection**: `l2m_detect_all_popups` iterates across all active named popup profiles across the screen.
 - **HP Bar Analysis Engine ([`src/game/hp_engine.c`])**:
   - Dual red/orange tolerance mask horizontal boundary scanning for exact HP percentage calculation.
 - **Low-Level Vision Operator Library ([`src/vision/`])**:
@@ -70,10 +73,13 @@ This project is completely decoupled from Python runtimes and bloated dependenci
 - **DirectX Zero-Blackout Screen Capture Pipeline (`win_capture.c`)**:
   - Primary Strategy: `ClientToScreen` coordinate transformation + global desktop DC `BitBlt(SRCCOPY | CAPTUREBLT)`, ensuring 100% stable capture of DirectX 11/12 and GPU SwapChain hardware-accelerated rendering;
   - Fallback Strategy: Automatic seamless fallback to `PrintWindow(PW_RENDERFULLCONTENT)` when solid black frames are detected.
-- **DirectInput Hardware Scan Codes & Physical Mouse Driver (`win_input.c`)**:
+- **DirectInput Hardware Scan Codes & Adaptive Physical Mouse Driver (`win_input.c`)**:
   - **Force Window Activation (`l2m_force_activate_window`)**: Combines `AttachThreadInput` queue attachment + `SetWindowPos(HWND_TOPMOST)` + `SetForegroundWindow` to reliably bring target windows to the foreground;
   - **Home / Teleport Shortcut Simulation**: Emits **Keyboard Hardware Scan Code 0x0B (Key '0')** to bypass DirectInput and RawInput restrictions;
-  - **Physical Mouse Injection**: `SetCursorPos` for physical cursor positioning + `SendInput(INPUT_MOUSE)` for hardware-level clicking, combined with background window message posting;
+  - **Window DPI/Resolution Adaptation & Absolute Physical Cursor Injection**:
+    - Automatically translates 960x540 reference coordinates to actual client pixel dimensions;
+    - Uses normalized 0~65535 absolute coordinates via `SendInput(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE)`;
+    - Holds key press for **80ms** across 3D rendering frames, combined with nested child window penetration (`RealChildWindowFromPoint` & `MapWindowPoints`);
   - **Administrator Privilege Detection**: Automatically inspects execution privileges on startup to prevent Windows UIPI isolation from silently intercepting inputs.
 
 ---

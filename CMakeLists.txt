@@ -1,6 +1,17 @@
 cmake_minimum_required(VERSION 3.10)
 project(Lineage2MBot C)
 
+if(MSVC)
+    # 强制 MSVC 使用 UTF-8 读取源码
+    add_compile_options(/utf-8)
+    
+    # 屏蔽不安全函数的警告
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+    
+    # 【新增这一行】：强制 Windows API 使用 Unicode (宽字符) 版本
+    add_compile_definitions(UNICODE _UNICODE)
+endif()
+
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
