@@ -128,7 +128,7 @@ bool l2m_send_key_press(HWND hwnd, WORD vk_code) {
     return true;
 }
 
-/* 物理级鼠标移动与硬件点击 (DirectInput / RawInput / DirectX 3D 游戏兼容) */
+/* 物理级鼠标移动与硬件点击 (支持预激活防吞噬 + 原地双重真实按压) */
 static void execute_physical_mouse_click(int abs_x, int abs_y) {
     int v_left = GetSystemMetrics(SM_XVIRTUALSCREEN);
     int v_top = GetSystemMetrics(SM_YVIRTUALSCREEN);
@@ -144,7 +144,7 @@ static void execute_physical_mouse_click(int abs_x, int abs_y) {
     /* 1. 先用系统 API 物理移至该像素坐标 */
     SetCursorPos(abs_x, abs_y);
 
-    /* 2. 再用 SendInput + mouse_event 注入物理移动事件，触发系统与游戏的光标更新 */
+    /* 2. 再用 SendInput + mouse_event 注入绝对移动事件，触发系统与游戏的光标更新 */
     INPUT input_move;
     memset(&input_move, 0, sizeof(INPUT));
     input_move.type = INPUT_MOUSE;
@@ -154,38 +154,46 @@ static void execute_physical_mouse_click(int abs_x, int abs_y) {
     SendInput(1, &input_move, sizeof(INPUT));
     mouse_event(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK, norm_x, norm_y, 0, 0);
 
-    /* 3. 悬停停顿 (100ms)：确保 Direct3D/虚幻引擎渲染线程将光标 HitTest 判定更新为按钮 Hover/聚焦状态 */
-    Sleep(100);
+    /* 3. 悬停停顿 (80ms)：确保 Direct3D/虚幻引擎渲染线程将光标 HitTest 判定更新为按钮 Hover/聚焦状态 */
+    Sleep(80);
 
-    /* 4. 发送原地按下 (不带 MOVE 标志，防止被游戏 UI 判定为微小拖拽/滑动而拒绝触发 Click 事件) */
     INPUT input_down;
     memset(&input_down, 0, sizeof(INPUT));
     input_down.type = INPUT_MOUSE;
     input_down.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
-    SendInput(1, &input_down, sizeof(INPUT));
-    mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
 
-    /* 5. 充足按压保持时间 (140ms)，确保跨越 3D 游戏 8~10 个完整渲染帧 */
-    Sleep(140);
-
-    /* 6. 发送原地抬起 (不带 MOVE 标志) */
     INPUT input_up;
     memset(&input_up, 0, sizeof(INPUT));
     input_up.type = INPUT_MOUSE;
     input_up.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+
+    /* 4. 第一击：预激活击穿（短按 40ms 抬起，消耗 Windows 激活吞噬 WM_MOUSEACTIVATE 机制） */
+    SendInput(1, &input_down, sizeof(INPUT));
+    mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
+    Sleep(40);
+    SendInput(1, &input_up, sizeof(INPUT));
+    mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
+
+    /* 5. 焦点过渡微停顿 (60ms) */
+    Sleep(60);
+
+    /* 6. 第二击：真实物理按压（原地充足保持 130ms，100% 触发按钮的按下动画与 Click 业务逻辑） */
+    SendInput(1, &input_down, sizeof(INPUT));
+    mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
+    Sleep(130);
     SendInput(1, &input_up, sizeof(INPUT));
     mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
 
     /* 7. 抬起后恢复短暂停顿 */
-    Sleep(60);
+    Sleep(50);
 }
 
 bool l2m_post_mouse_click(HWND hwnd, int32_t client_x, int32_t client_y) {
     if (!hwnd || !IsWindow(hwnd)) return false;
 
-    /* 1. 强力激活并置前目标游戏窗口，并给予 120ms 建立输入焦点 */
+    /* 1. 强力激活并置前目标游戏窗口，并给予 100ms 建立输入焦点 */
     l2m_force_activate_window(hwnd);
-    Sleep(120);
+    Sleep(100);
 
     /* 2. 自适应换算客户区物理像素 (将 960x540 标准参考系自适应映射到真实窗口客户区) */
     RECT rcClient;
@@ -210,12 +218,33 @@ bool l2m_post_mouse_click(HWND hwnd, int32_t client_x, int32_t client_y) {
     if (!hTarget || !IsWindow(hTarget)) {
         hTarget = ChildWindowFromPoint(hwnd, client_pt);
     }
-    if (hTarget && IsWindow(hTarget) && hTarget != hwnd) {
-        SetFocus(hTarget);
+    if (!hTarget || !IsWindow(hTarget)) {
+        hTarget = hwnd;
     }
 
-    /* 5. 执行纯净的硬件级物理光标移动与原地按下/抬起注入，确保 DirectInput / PURPLE 100% 响应 */
+    if (hTarget && IsWindow(hTarget)) {
+        SetFocus(hTarget);
+        SetActiveWindow(hTarget);
+    }
+
+    /* 计算相对于目标子窗口客户区的相对坐标 */
+    POINT child_pt = {actual_x, actual_y};
+    if (hTarget != hwnd) {
+        MapWindowPoints(hwnd, hTarget, &child_pt, 1);
+    }
+    LPARAM lparam_target = MAKELPARAM((WORD)child_pt.x, (WORD)child_pt.y);
+
+    /* 5. 同步发送一次子窗口鼠标移动通知 */
+    SendMessageW(hTarget, WM_SETCURSOR, (WPARAM)hTarget, MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
+    SendMessageW(hTarget, WM_MOUSEMOVE, 0, lparam_target);
+
+    /* 6. 执行强大的双重确认物理硬件单击 (预激活防吞噬 + 原地真实长按) */
     execute_physical_mouse_click(screen_pt.x, screen_pt.y);
+
+    /* 7. 后续异步补发一次消息确认 (双重保障) */
+    PostMessageW(hTarget, WM_LBUTTONDOWN, MK_LBUTTON, lparam_target);
+    Sleep(50);
+    PostMessageW(hTarget, WM_LBUTTONUP, 0, lparam_target);
 
     return true;
 }
