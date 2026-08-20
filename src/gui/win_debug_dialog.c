@@ -1030,11 +1030,17 @@ static void execute_map_detection(void) {
                  L"🛡️ 区域类型判定: 【%ls】(置信度: %.1f分)\r\n"
                  L"📊 色彩空间统计: 绿色安全占比 %.1f%% | 普通野外占比 %.1f%% | 红色战斗占比 %.1f%%\r\n"
                  L"🎨 区域状态标识RGB: (%d, %d, %d) | 区域平均亮度: %.1f\r\n"
+                 L"⚙️ JSON配置参数: ROI=(%d,%d,%d,%d) 子ROI=(%d,%d,%d,%d) 安全门限=%.1f%%\r\n"
                  L"📝 诊断说明: %ls",
                  res.map_rect.x, res.map_rect.y, res.map_rect.width, res.map_rect.height,
                  zone_type_name, res.confidence,
                  res.green_ratio * 100.0f, res.white_gray_ratio * 100.0f, res.red_ratio * 100.0f,
                  res.badge_mean_rgb.r, res.badge_mean_rgb.g, res.badge_mean_rgb.b, res.mean_brightness,
+                 g_current_cbt_cfg.map_zone_cfg.x, g_current_cbt_cfg.map_zone_cfg.y,
+                 g_current_cbt_cfg.map_zone_cfg.width, g_current_cbt_cfg.map_zone_cfg.height,
+                 g_current_cbt_cfg.map_zone_cfg.badge_offset_x, g_current_cbt_cfg.map_zone_cfg.badge_offset_y,
+                 g_current_cbt_cfg.map_zone_cfg.badge_width, g_current_cbt_cfg.map_zone_cfg.badge_height,
+                 g_current_cbt_cfg.map_zone_cfg.min_green_ratio * 100.0f,
                  w_desc);
     } else {
         g_has_map_overlay = false;

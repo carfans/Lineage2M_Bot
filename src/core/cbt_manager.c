@@ -329,6 +329,25 @@ static char* find_matching_brace(char *start) {
   return NULL;
 }
 
+static void init_default_map_zone_config(L2MMapZoneConfig* cfg) {
+  if (!cfg) return;
+  memset(cfg, 0, sizeof(L2MMapZoneConfig));
+  cfg->enabled = true;
+  snprintf(cfg->desc, sizeof(cfg->desc), "左上角小地图与安全/普通区域判别");
+  cfg->x = 10;
+  cfg->y = 10;
+  cfg->width = 135;
+  cfg->height = 95;
+  cfg->badge_offset_x = 20;
+  cfg->badge_offset_y = 10;
+  cfg->badge_width = 115;
+  cfg->badge_height = 85;
+  cfg->min_green_ratio = 0.015f;
+  cfg->min_red_ratio = 0.020f;
+  cfg->min_white_ratio = 0.015f;
+  cfg->max_bg_brightness = 140.0f;
+}
+
 bool l2m_cbt_load(const char *region, L2MCbtConfig *cfg) {
   if (!region || !cfg)
     return false;
@@ -337,9 +356,10 @@ bool l2m_cbt_load(const char *region, L2MCbtConfig *cfg) {
   strncpy(cfg->region, region, sizeof(cfg->region) - 1);
   get_cbt_file_path(region, cfg->file_path, sizeof(cfg->file_path));
 
-  /* 初始化弹窗全特征默认参数与地图框默认 ROI (960x540 标准参考系) */
+  /* 初始化弹窗全特征默认参数与地图区域默认参数 (960x540 标准参考系) */
   init_default_popup_params(&cfg->popup_cfg);
-  cfg->map_box_roi = (L2MRect){10, 10, 135, 95};
+  init_default_map_zone_config(&cfg->map_zone_cfg);
+  cfg->map_box_roi = (L2MRect){cfg->map_zone_cfg.x, cfg->map_zone_cfg.y, cfg->map_zone_cfg.width, cfg->map_zone_cfg.height};
 
   FILE *fp = fopen(cfg->file_path, "rb");
   if (!fp)
@@ -438,10 +458,22 @@ bool l2m_cbt_load(const char *region, L2MCbtConfig *cfg) {
     if (map_brace_start) {
       char *map_brace_end = find_matching_brace(map_brace_start);
       if (map_brace_end) {
-        parse_json_int(map_brace_start, "x", &cfg->map_box_roi.x);
-        parse_json_int(map_brace_start, "y", &cfg->map_box_roi.y);
-        parse_json_int(map_brace_start, "width", &cfg->map_box_roi.width);
-        parse_json_int(map_brace_start, "height", &cfg->map_box_roi.height);
+        parse_json_bool(map_brace_start, "enabled", &cfg->map_zone_cfg.enabled);
+        parse_json_string(map_brace_start, "desc", cfg->map_zone_cfg.desc, sizeof(cfg->map_zone_cfg.desc));
+        parse_json_int(map_brace_start, "x", &cfg->map_zone_cfg.x);
+        parse_json_int(map_brace_start, "y", &cfg->map_zone_cfg.y);
+        parse_json_int(map_brace_start, "width", &cfg->map_zone_cfg.width);
+        parse_json_int(map_brace_start, "height", &cfg->map_zone_cfg.height);
+        parse_json_int(map_brace_start, "badge_offset_x", &cfg->map_zone_cfg.badge_offset_x);
+        parse_json_int(map_brace_start, "badge_offset_y", &cfg->map_zone_cfg.badge_offset_y);
+        parse_json_int(map_brace_start, "badge_width", &cfg->map_zone_cfg.badge_width);
+        parse_json_int(map_brace_start, "badge_height", &cfg->map_zone_cfg.badge_height);
+        parse_json_float(map_brace_start, "min_green_ratio", &cfg->map_zone_cfg.min_green_ratio);
+        parse_json_float(map_brace_start, "min_red_ratio", &cfg->map_zone_cfg.min_red_ratio);
+        parse_json_float(map_brace_start, "min_white_ratio", &cfg->map_zone_cfg.min_white_ratio);
+        parse_json_float(map_brace_start, "max_bg_brightness", &cfg->map_zone_cfg.max_bg_brightness);
+
+        cfg->map_box_roi = (L2MRect){cfg->map_zone_cfg.x, cfg->map_zone_cfg.y, cfg->map_zone_cfg.width, cfg->map_zone_cfg.height};
       }
     }
   }
@@ -637,12 +669,24 @@ bool l2m_cbt_save(const L2MCbtConfig *cfg) {
   }
 
   /* 2. 写入 map_box_config 节点 */
-  if (cfg->map_box_roi.width > 0 && cfg->map_box_roi.height > 0) {
+  if (cfg->map_zone_cfg.width > 0 && cfg->map_zone_cfg.height > 0) {
     fprintf(fp, "  \"map_box_config\": {\n");
-    fprintf(fp, "    \"x\": %d,\n", cfg->map_box_roi.x);
-    fprintf(fp, "    \"y\": %d,\n", cfg->map_box_roi.y);
-    fprintf(fp, "    \"width\": %d,\n", cfg->map_box_roi.width);
-    fprintf(fp, "    \"height\": %d\n", cfg->map_box_roi.height);
+    fprintf(fp, "    \"enabled\": %s,\n", cfg->map_zone_cfg.enabled ? "true" : "false");
+    if (strlen(cfg->map_zone_cfg.desc) > 0) {
+      fprintf(fp, "    \"desc\": \"%s\",\n", cfg->map_zone_cfg.desc);
+    }
+    fprintf(fp, "    \"x\": %d,\n", cfg->map_zone_cfg.x);
+    fprintf(fp, "    \"y\": %d,\n", cfg->map_zone_cfg.y);
+    fprintf(fp, "    \"width\": %d,\n", cfg->map_zone_cfg.width);
+    fprintf(fp, "    \"height\": %d,\n", cfg->map_zone_cfg.height);
+    fprintf(fp, "    \"badge_offset_x\": %d,\n", cfg->map_zone_cfg.badge_offset_x);
+    fprintf(fp, "    \"badge_offset_y\": %d,\n", cfg->map_zone_cfg.badge_offset_y);
+    fprintf(fp, "    \"badge_width\": %d,\n", cfg->map_zone_cfg.badge_width);
+    fprintf(fp, "    \"badge_height\": %d,\n", cfg->map_zone_cfg.badge_height);
+    fprintf(fp, "    \"min_green_ratio\": %.3f,\n", cfg->map_zone_cfg.min_green_ratio);
+    fprintf(fp, "    \"min_red_ratio\": %.3f,\n", cfg->map_zone_cfg.min_red_ratio);
+    fprintf(fp, "    \"min_white_ratio\": %.3f,\n", cfg->map_zone_cfg.min_white_ratio);
+    fprintf(fp, "    \"max_bg_brightness\": %.1f\n", cfg->map_zone_cfg.max_bg_brightness);
     if (cfg->count > 0) {
       fprintf(fp, "  },\n");
     } else {
@@ -863,9 +907,24 @@ bool l2m_cbt_test_pixel_match(const L2MImageBuffer *img_rgb,
   return true;
 }
 
+bool l2m_cbt_get_map_zone_config(const L2MCbtConfig* cfg, L2MMapZoneConfig* out_cfg) {
+  if (!cfg || !out_cfg) return false;
+  *out_cfg = cfg->map_zone_cfg;
+  return true;
+}
+
+bool l2m_cbt_set_map_zone_config(L2MCbtConfig* cfg, const L2MMapZoneConfig* map_cfg) {
+  if (!cfg || !map_cfg) return false;
+  cfg->map_zone_cfg = *map_cfg;
+  cfg->map_box_roi = (L2MRect){map_cfg->x, map_cfg->y, map_cfg->width, map_cfg->height};
+  return true;
+}
+
 bool l2m_cbt_get_map_box_roi(const L2MCbtConfig* cfg, L2MRect* out_roi) {
   if (!cfg || !out_roi) return false;
-  if (cfg->map_box_roi.width > 0 && cfg->map_box_roi.height > 0) {
+  if (cfg->map_zone_cfg.width > 0 && cfg->map_zone_cfg.height > 0) {
+    *out_roi = (L2MRect){cfg->map_zone_cfg.x, cfg->map_zone_cfg.y, cfg->map_zone_cfg.width, cfg->map_zone_cfg.height};
+  } else if (cfg->map_box_roi.width > 0 && cfg->map_box_roi.height > 0) {
     *out_roi = cfg->map_box_roi;
   } else {
     *out_roi = (L2MRect){10, 10, 135, 95};
@@ -876,5 +935,9 @@ bool l2m_cbt_get_map_box_roi(const L2MCbtConfig* cfg, L2MRect* out_roi) {
 bool l2m_cbt_set_map_box_roi(L2MCbtConfig* cfg, const L2MRect* roi) {
   if (!cfg || !roi) return false;
   cfg->map_box_roi = *roi;
+  cfg->map_zone_cfg.x = roi->x;
+  cfg->map_zone_cfg.y = roi->y;
+  cfg->map_zone_cfg.width = roi->width;
+  cfg->map_zone_cfg.height = roi->height;
   return true;
 }

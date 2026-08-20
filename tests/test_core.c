@@ -89,12 +89,32 @@ static void test_cbt_manager(void) {
     TEST_ASSERT(del_pop_ok && l2m_cbt_get_popup_count(&cfg) == prev_popup_cnt,
                 "l2m_cbt_delete_popup_item successfully deleted named popup profile");
 
-    /* 验证没有将 center 和 fullscreen 误解析为普通 CBT 点位 */
-    L2MCbtPoint pt_center, pt_fullscreen;
+    /* 验证地图区域 map_box_config 完整参数解析与存取 */
+    L2MMapZoneConfig map_cfg;
+    bool has_map_cfg = l2m_cbt_get_map_zone_config(&cfg, &map_cfg);
+    TEST_ASSERT(has_map_cfg && map_cfg.enabled, "map_box_config loaded with enabled=true");
+    TEST_ASSERT(map_cfg.x == 10 && map_cfg.y == 10 && map_cfg.width == 135 && map_cfg.height == 95,
+                "map_box_config ROI (10, 10, 135, 95) parsed correctly");
+    TEST_ASSERT(map_cfg.badge_offset_x == 20 && map_cfg.badge_width == 115,
+                "map_box_config badge sub-ROI parsed correctly");
+    TEST_ASSERT(map_cfg.min_green_ratio >= 0.010f && map_cfg.max_bg_brightness >= 120.0f,
+                "map_box_config threshold parameters parsed correctly");
+
+    /* 验证修改与设置地图区域配置 */
+    map_cfg.x = 12; map_cfg.y = 14;
+    map_cfg.min_green_ratio = 0.018f;
+    bool set_map_ok = l2m_cbt_set_map_zone_config(&cfg, &map_cfg);
+    TEST_ASSERT(set_map_ok && cfg.map_zone_cfg.x == 12 && cfg.map_box_roi.x == 12,
+                "l2m_cbt_set_map_zone_config synchronized map_zone_cfg and map_box_roi");
+
+    /* 验证没有将 center, fullscreen 和 map_box_config 误解析为普通 CBT 点位 */
+    L2MCbtPoint pt_center, pt_fullscreen, pt_map;
     bool has_bad_center = l2m_cbt_get_point(&cfg, "center", &pt_center);
     bool has_bad_fullscreen = l2m_cbt_get_point(&cfg, "fullscreen", &pt_fullscreen);
+    bool has_bad_map = l2m_cbt_get_point(&cfg, "map_box_config", &pt_map);
     TEST_ASSERT(!has_bad_center, "Key 'center' from popup config must NOT be parsed as CBT point");
     TEST_ASSERT(!has_bad_fullscreen, "Key 'fullscreen' from popup config must NOT be parsed as CBT point");
+    TEST_ASSERT(!has_bad_map, "Key 'map_box_config' must NOT be parsed as CBT point");
 
     /* 验证具体点位解析 */
     L2MCbtPoint pt_slot1;

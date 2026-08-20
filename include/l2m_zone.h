@@ -20,6 +20,28 @@ typedef enum {
     L2M_ZONE_COMBAT = 3         /* 自由战斗/危险区域 (Combat / Danger Zone / 攻城战区) */
 } L2MZoneType;
 
+/* 地图框与区域检测配置参数 (对应 JSON map_box_config) */
+typedef struct {
+    bool enabled;               /* 是否启用地图区域识别 */
+    char desc[128];             /* 配置描述 */
+    int32_t x;                  /* 地图框扫描 ROI X 坐标 (960x540 标准参考系) */
+    int32_t y;                  /* 地图框扫描 ROI Y 坐标 */
+    int32_t width;              /* 地图框扫描 ROI 宽度 */
+    int32_t height;             /* 地图框扫描 ROI 高度 */
+
+    /* 区域状态徽章/文字子区域相对偏移 */
+    int32_t badge_offset_x;     /* 相对地图框的 X 偏移 */
+    int32_t badge_offset_y;     /* 相对地图框的 Y 偏移 */
+    int32_t badge_width;        /* 区域状态检测子区域宽度 */
+    int32_t badge_height;       /* 区域状态检测子区域高度 */
+
+    /* 判据阈值参数 */
+    float min_green_ratio;      /* 判定为安全区域的绿色像素最小占比 (默认 0.015) */
+    float min_red_ratio;        /* 判定为战斗区域的红色像素最小占比 (默认 0.020) */
+    float min_white_ratio;      /* 判定为普通野外区域的白色像素最小占比 (默认 0.015) */
+    float max_bg_brightness;    /* 地图暗底最大平均亮度阈值 (默认 140.0) */
+} L2MMapZoneConfig;
+
 /* 地图框与区域检测完整结果 */
 typedef struct {
     bool detected;              /* 是否成功检测到地图框 */
@@ -39,12 +61,24 @@ typedef struct {
 } L2MMapBoxResult;
 
 /**
- * @brief 在局部切片图像中识别地图框与判别区域类型
+ * @brief 在局部切片图像中基于指定配置识别地图框与判别区域类型
  * @param crop_rgb 左上角地图区域图像切片 (RGB888)
  * @param base_x 切片在全局 960x540 画布中的 X 偏移
  * @param base_y 切片在全局 960x540 画布中的 Y 偏移
+ * @param cfg 地图区域配置参数 (为 NULL 时采用默认参数)
  * @param out_result 输出地图框与区域分析结果
  * @return 是否检测到有效地图框
+ */
+bool l2m_detect_map_box_with_config(
+    const L2MImageBuffer* crop_rgb,
+    int32_t base_x,
+    int32_t base_y,
+    const L2MMapZoneConfig* cfg,
+    L2MMapBoxResult* out_result
+);
+
+/**
+ * @brief 在局部切片图像中识别地图框与判别区域类型 (兼容接口)
  */
 bool l2m_detect_map_box(
     const L2MImageBuffer* crop_rgb,
@@ -71,3 +105,4 @@ bool l2m_detect_map_zone(
 #endif
 
 #endif /* L2M_ZONE_H */
+

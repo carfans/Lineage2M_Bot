@@ -13,12 +13,11 @@ All notable changes to this project will be documented in this file.
   - **🌾 普通区域 (Normal Zone / 野外常规战斗区)**：提取白色、浅灰及淡金黄色常规野外文字与地图底板特征，自动判别野外刷怪区；
   - **⚔️ 自由战斗区域 (Combat / Danger Zone / 攻城战区)**：提取高饱和亮红色文字与战斗标记，告警危险 PVP 区域；
   - 提供统一 C 语言核心接口：`l2m_detect_map_box` 与全屏自动检测 `l2m_detect_map_zone`。
-- **CBT 配置扩展与 JSON 持久化**：
-  - 在 `L2MCbtConfig` 中新增 `map_box_roi` 字段，支持在 `data/cbt/<REGION>.json` 中配置自定义地图扫描 ROI 并自动兜底。
-- **可视化调试器集成与画板高亮渲染**：
-  - 调试器新增【🗺️ 地图】快捷诊断按钮；
-  - 在 960x540 大画板上根据区域类型动态渲染**高亮绿（安全区）/ 高亮金（普通区）/ 高亮红（战斗区）**边框与置信度标签；
-  - 诊断报告中详细输出地图尺寸、区域类型、各特征颜色占比与平均 RGB。
+- **地图区域坐标与多维判据参数 JSON 完整管理 (`map_box_config`)**：
+  - 在 `include/l2m_zone.h` 与 `include/l2m_cbt.h` 中引入 `L2MMapZoneConfig` 结构体；
+  - 支持将地图扫描 ROI（`x, y, width, height`）、区域状态徽章子 ROI（`badge_offset_x, badge_offset_y, badge_width, badge_height`）、绿色安全阈值（`min_green_ratio`）、红色战斗阈值（`min_red_ratio`）、白色普通阈值（`min_white_ratio`）与暗底亮度门限（`max_bg_brightness`）完整持久化到 JSON 文件中；
+  - 核心算法引擎动态感知并采用 JSON 配置中的参数执行实时判据；
+  - 调试器诊断日志中完整展示当前的 JSON 配置来源与子区域设定。
 
 ---
 

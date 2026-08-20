@@ -73,6 +73,22 @@
       "has_checkbox": false
     }
   },
+  "map_box_config": {
+    "enabled": true,
+    "desc": "左上角小地图与安全/普通区域判别",
+    "x": 10,
+    "y": 10,
+    "width": 135,
+    "height": 95,
+    "badge_offset_x": 20,
+    "badge_offset_y": 10,
+    "badge_width": 115,
+    "badge_height": 85,
+    "min_green_ratio": 0.015,
+    "min_red_ratio": 0.020,
+    "min_white_ratio": 0.015,
+    "max_bg_brightness": 140.0
+  },
   "inventory_slot1_empty_1": {
     "pos": [
       305,

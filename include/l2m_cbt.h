@@ -82,13 +82,16 @@ typedef struct {
     L2MPopupItem fullscreen;
 } L2MPopupScanConfig;
 
+#include "l2m_zone.h"
+
 typedef struct {
     char region[8];          /* "CN", "EN", "JP", "RU" */
     char file_path[260];     /* JSON 文件完整路径 */
     L2MCbtPoint points[MAX_CBT_POINTS];
     int count;
     L2MPopupScanConfig popup_cfg;
-    L2MRect map_box_roi;     /* 左上角地图框扫描 ROI (默认 x: 10, y: 10, w: 135, h: 95) */
+    L2MMapZoneConfig map_zone_cfg; /* 左上角地图框与区域检测配置 */
+    L2MRect map_box_roi;           /* 快捷兼容别名 (map_box_roi.x 等同于 map_zone_cfg.x) */
 } L2MCbtConfig;
 
 /* 从 data/cbt/<REGION>.json 或 bot/data/cbt/<REGION>.json 加载配置 */
@@ -96,6 +99,12 @@ bool l2m_cbt_load(const char* region, L2MCbtConfig* cfg);
 
 /* 保存配置回 JSON 文件 (同时保存特征点、命名弹窗与地图框配置) */
 bool l2m_cbt_save(const L2MCbtConfig* cfg);
+
+/* 获取地图区域完整配置 */
+bool l2m_cbt_get_map_zone_config(const L2MCbtConfig* cfg, L2MMapZoneConfig* out_cfg);
+
+/* 设置地图区域完整配置 */
+bool l2m_cbt_set_map_zone_config(L2MCbtConfig* cfg, const L2MMapZoneConfig* map_cfg);
 
 /* 获取地图框扫描 ROI 配置 */
 bool l2m_cbt_get_map_box_roi(const L2MCbtConfig* cfg, L2MRect* out_roi);
