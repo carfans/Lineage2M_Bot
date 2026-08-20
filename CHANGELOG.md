@@ -22,6 +22,8 @@ All notable changes to this project will be documented in this file.
   - 在文件选择框（`GetOpenFileName` / `GetSaveFileName`）中加入 `OFN_NOCHANGEDIR` 标志，防止系统悄悄篡改当前进程工作目录；
   - 重构 `get_cbt_file_path`，优先通过 `GetModuleFileNameA` 动态探测 EXE 物理安装目录，生成绝对路径；
   - 增加 `ensure_parent_dir_exists`，在保存文件时若目标父目录（如 `data/cbt/`）不存在，自动递归创建。
+- **消除弹窗检测与诊断报告中的中文乱码**：
+  - 在 `win_debug_dialog.c` 中实现 `utf8_to_wide` 专用转换函数，将底层引擎输出的 UTF-8 格式字符串显式转换为 Unicode `wchar_t*`，彻底解决 `swprintf` 使用 `%hs` 导致的 ANSI/GBK 解码乱码。
 - **彻底解决物理鼠标模拟点击无效与“激活吞噬”问题**：
   - **自适应窗口分辨率换算**：将 960x540 标准参考系自适应按比例映射至目标客户区物理真实分辨率；
   - **支持全局虚拟多屏桌面绝对坐标**：引入 `SM_CXVIRTUALSCREEN` / `SM_CYVIRTUALSCREEN` 归一化坐标与 `MOUSEEVENTF_VIRTUALDESK` 标志；

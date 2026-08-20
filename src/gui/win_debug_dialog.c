@@ -852,6 +852,15 @@ static LRESULT CALLBACK CanvasWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
     return DefWindowProcW(hWnd, msg, wParam, lParam);
 }
 
+/* UTF-8 转 Unicode 宽字符串辅助函数 (彻底消除界面中文乱码) */
+static void utf8_to_wide(const char* utf8_str, wchar_t* out_wstr, int max_wlen) {
+    if (!out_wstr || max_wlen <= 0) return;
+    out_wstr[0] = L'\0';
+    if (!utf8_str || utf8_str[0] == '\0') return;
+    MultiByteToWideChar(CP_UTF8, 0, utf8_str, -1, out_wstr, max_wlen);
+    out_wstr[max_wlen - 1] = L'\0';
+}
+
 /* 执行弹窗检测 */
 static void execute_popup_detection(void) {
     if (!g_current_frame_rgb) {
@@ -907,30 +916,43 @@ static void execute_popup_detection(void) {
             swprintf(cb_tip, sizeof(cb_tip)/sizeof(wchar_t), L"\r\n☑ 发现【不再显示】勾选框: (%d, %d)", res.checkbox_pos.x, res.checkbox_pos.y);
         }
 
+        wchar_t w_popname[128] = {0};
+        wchar_t w_featdesc[256] = {0};
+        utf8_to_wide(res.popup_name[0] ? res.popup_name : res.desc, w_popname, 128);
+        utf8_to_wide(res.feature_info.feature_desc[0] ? res.feature_info.feature_desc : "已提取", w_featdesc, 256);
+
         swprintf(log_buf, sizeof(log_buf)/sizeof(wchar_t),
-                 L"✅ 成功锁定弹窗【%hs】(置信度: %.1f分)\r\n"
+                 L"✅ 成功锁定弹窗【%ls】(置信度: %.1f分)\r\n"
                  L"🎯 按钮坐标: (%d, %d) | 尺寸: %dx%d (比例: %.2f:1, 尺寸得分: %.1f)\r\n"
                  L"🎨 按钮颜色: RGB(%d, %d, %d) | 填充纯度: %.1f%% | 色彩得分: %.1f\r\n"
-                 L"🏛️ 弹窗特征: %hs (特征得分: %.1f分)\r\n"
+                 L"🏛️ 弹窗特征: %ls (特征得分: %.1f分)\r\n"
                  L"📊 背景校验: ✅ 暗底占比 %.1f%% | 彩度干扰 %.1f%% | 均值亮度 %.1f%ls",
-                 res.popup_name[0] ? res.popup_name : res.desc, res.score,
+                 w_popname, res.score,
                  res.button_pos.x, res.button_pos.y,
                  res.button_bbox.width, res.button_bbox.height, res.button_aspect_ratio, res.size_score,
                  res.button_mean_rgb.r, res.button_mean_rgb.g, res.button_mean_rgb.b,
                  res.button_fill_ratio * 100.0f, res.color_score,
-                 res.feature_info.feature_desc[0] ? res.feature_info.feature_desc : "已提取", res.feature_info.feature_score,
+                 w_featdesc, res.feature_info.feature_score,
                  res.bg_info.dark_ratio * 100.0f, res.bg_info.high_chroma_ratio * 100.0f, res.bg_info.mean_brightness,
                  cb_tip);
     } else {
         g_has_popup_overlay = false;
+
+        wchar_t w_popname[128] = {0};
+        wchar_t w_reason[256] = {0};
+        wchar_t w_featdesc[256] = {0};
+        utf8_to_wide(target_item ? target_item->name : "弹窗", w_popname, 128);
+        utf8_to_wide(res.bg_info.reason[0] ? res.bg_info.reason : "未找到符合尺寸与颜色的按钮", w_reason, 256);
+        utf8_to_wide(res.feature_info.feature_desc[0] ? res.feature_info.feature_desc : "未匹配", w_featdesc, 256);
+
         swprintf(log_buf, sizeof(log_buf)/sizeof(wchar_t),
-                 L"❌ 未检测到弹窗【%hs】\r\n"
-                 L"原因: %hs\r\n"
-                 L"🏛️ 特征指标: %hs (特征得分: %.1f分)\r\n"
+                 L"❌ 未检测到弹窗【%ls】\r\n"
+                 L"原因: %ls\r\n"
+                 L"🏛️ 特征指标: %ls (特征得分: %.1f分)\r\n"
                  L"📊 背景指标: 暗底占比 %.1f%% | 彩度干扰 %.1f%% | 均值亮度 %.1f",
-                 target_item ? target_item->name : "弹窗",
-                 res.bg_info.reason[0] ? res.bg_info.reason : "未找到符合尺寸与颜色的按钮",
-                 res.feature_info.feature_desc[0] ? res.feature_info.feature_desc : "未匹配", res.feature_info.feature_score,
+                 w_popname,
+                 w_reason,
+                 w_featdesc, res.feature_info.feature_score,
                  res.bg_info.dark_ratio * 100.0f, res.bg_info.high_chroma_ratio * 100.0f, res.bg_info.mean_brightness);
     }
 
@@ -1042,9 +1064,14 @@ static void save_popup_config_to_json(void) {
     if (l2m_cbt_save(&g_current_cbt_cfg)) {
         refresh_popup_list_ui(name_utf8);
         wchar_t tip[512];
+        wchar_t w_itemname[128] = {0};
+        wchar_t w_cbtkey[128] = {0};
+        utf8_to_wide(item.name, w_itemname, 128);
+        utf8_to_wide(item.linked_cbt_key[0] ? item.linked_cbt_key : "无", w_cbtkey, 128);
+
         swprintf(tip, sizeof(tip)/sizeof(wchar_t),
-                 L"✅ 弹窗【%hs】(关联CBT: %hs) 区域 (%d, %d, %d, %d) 已成功保存至配置文件！\r\n路径: %hs",
-                 item.name, item.linked_cbt_key[0] ? item.linked_cbt_key : "无",
+                 L"✅ 弹窗【%ls】(关联CBT: %ls) 区域 (%d, %d, %d, %d) 已成功保存至配置文件！\r\n路径: %hs",
+                 w_itemname, w_cbtkey,
                  rx, ry, rw, rh, g_current_cbt_cfg.file_path);
         SetWindowTextW(g_hStatusText, tip);
         MessageBoxW(g_hDebugWnd, tip, L"弹窗配置保存成功", MB_OK | MB_ICONINFORMATION);
