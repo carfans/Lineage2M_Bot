@@ -30,7 +30,7 @@ echo [*] Using Compiler: %CC%
 if not exist "bin" mkdir bin
 if not exist "build" mkdir build
 
-set "CORE_SRCS=src\core\image_buffer.c src\core\logger.c src\core\cbt_manager.c src\vision\color_mask.c src\vision\morphology.c src\vision\contour.c src\game\hp_engine.c src\game\popup_engine.c src\platform\win_capture.c src\platform\win_input.c src\api\l2m_api.c"
+set "CORE_SRCS=src\core\image_buffer.c src\core\logger.c src\core\cbt_manager.c src\vision\color_mask.c src\vision\morphology.c src\vision\contour.c src\game\hp_engine.c src\game\popup_engine.c src\game\map_zone_engine.c src\platform\win_capture.c src\platform\win_input.c src\api\l2m_api.c"
 set "GUI_SRCS=src\gui\win_debug_dialog.c src\gui\win_main_gui.c src\main_app.c"
 
 echo.
