@@ -1365,70 +1365,72 @@ static LRESULT CALLBACK DebugWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
             RegisterClassW(&wcZ);
 
             /* ===== 区域 1: 命名弹窗管理与截图控制 ===== */
-            CreateWindowW(L"STATIC", L"弹窗选择:", WS_CHILD | WS_VISIBLE, 15, 10, 60, 20, hWnd, NULL, NULL, NULL);
-            g_hPopupTypeCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 75, 7, 210, 250, hWnd, (HMENU)ID_CB_POPUP_TYPE, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"➕ 新建", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 290, 6, 70, 25, hWnd, (HMENU)ID_BTN_NEW_POPUP, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"🗑️ 删除", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 365, 6, 75, 25, hWnd, (HMENU)ID_BTN_DEL_POPUP, NULL, NULL);
+            CreateWindowW(L"STATIC", L"弹窗选择:", WS_CHILD | WS_VISIBLE, 15, 8, 60, 20, hWnd, NULL, NULL, NULL);
+            g_hPopupTypeCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 75, 5, 210, 250, hWnd, (HMENU)ID_CB_POPUP_TYPE, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"➕ 新建", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 290, 4, 70, 25, hWnd, (HMENU)ID_BTN_NEW_POPUP, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🗑️ 删除", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 365, 4, 75, 25, hWnd, (HMENU)ID_BTN_DEL_POPUP, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"弹窗标识:", WS_CHILD | WS_VISIBLE, 15, 36, 60, 20, hWnd, NULL, NULL, NULL);
-            g_hPopupNameTxt = CreateWindowW(L"EDIT", L"center_modal", WS_CHILD | WS_VISIBLE | WS_BORDER, 75, 34, 150, 22, hWnd, (HMENU)ID_TXT_POPUP_NAME, NULL, NULL);
-            CreateWindowW(L"STATIC", L"描述:", WS_CHILD | WS_VISIBLE, 232, 36, 35, 20, hWnd, NULL, NULL, NULL);
-            g_hPopupDescTxt = CreateWindowW(L"EDIT", L"中间标准模态确认弹窗", WS_CHILD | WS_VISIBLE | WS_BORDER, 270, 34, 170, 22, hWnd, (HMENU)ID_TXT_POPUP_DESC, NULL, NULL);
+            CreateWindowW(L"STATIC", L"弹窗标识:", WS_CHILD | WS_VISIBLE, 15, 34, 60, 20, hWnd, NULL, NULL, NULL);
+            g_hPopupNameTxt = CreateWindowW(L"EDIT", L"center_modal", WS_CHILD | WS_VISIBLE | WS_BORDER, 75, 32, 150, 22, hWnd, (HMENU)ID_TXT_POPUP_NAME, NULL, NULL);
+            CreateWindowW(L"STATIC", L"描述:", WS_CHILD | WS_VISIBLE, 232, 34, 35, 20, hWnd, NULL, NULL, NULL);
+            g_hPopupDescTxt = CreateWindowW(L"EDIT", L"中间标准模态确认弹窗", WS_CHILD | WS_VISIBLE | WS_BORDER, 270, 32, 170, 22, hWnd, (HMENU)ID_TXT_POPUP_DESC, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"扫描 ROI:", WS_CHILD | WS_VISIBLE, 15, 63, 60, 20, hWnd, NULL, NULL, NULL);
-            g_hPopupRectTxt = CreateWindowW(L"EDIT", L"280, 150, 400, 240", WS_CHILD | WS_VISIBLE | WS_BORDER, 75, 61, 130, 22, hWnd, (HMENU)ID_TXT_POPUP_RECT, NULL, NULL);
-            CreateWindowW(L"STATIC", L"关联CBT:", WS_CHILD | WS_VISIBLE, 212, 63, 55, 20, hWnd, NULL, NULL, NULL);
-            g_hPopupLinkedCbtCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 270, 60, 170, 250, hWnd, (HMENU)ID_CB_POPUP_LINK_CBT, NULL, NULL);
+            CreateWindowW(L"STATIC", L"扫描 ROI:", WS_CHILD | WS_VISIBLE, 15, 59, 60, 20, hWnd, NULL, NULL, NULL);
+            g_hPopupRectTxt = CreateWindowW(L"EDIT", L"280, 150, 400, 240", WS_CHILD | WS_VISIBLE | WS_BORDER, 75, 57, 130, 22, hWnd, (HMENU)ID_TXT_POPUP_RECT, NULL, NULL);
+            CreateWindowW(L"STATIC", L"关联CBT:", WS_CHILD | WS_VISIBLE, 212, 59, 55, 20, hWnd, NULL, NULL, NULL);
+            g_hPopupLinkedCbtCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 270, 56, 170, 250, hWnd, (HMENU)ID_CB_POPUP_LINK_CBT, NULL, NULL);
 
-            CreateWindowW(L"BUTTON", L"🔍 识别弹窗", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 90, 100, 26, hWnd, (HMENU)ID_BTN_DETECT_POPUP, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"💾 保存/更新", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 120, 90, 105, 26, hWnd, (HMENU)ID_BTN_SAVE_POPUP, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"🖱️ 模拟关闭", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 230, 90, 100, 26, hWnd, (HMENU)ID_BTN_TEST_CLICK, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"📸 捕获画面", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 335, 90, 105, 26, hWnd, (HMENU)ID_BTN_CAPTURE, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🔍 识别弹窗", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 84, 100, 25, hWnd, (HMENU)ID_BTN_DETECT_POPUP, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"💾 保存/更新", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 120, 84, 105, 25, hWnd, (HMENU)ID_BTN_SAVE_POPUP, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🖱️ 模拟关闭", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 230, 84, 100, 25, hWnd, (HMENU)ID_BTN_TEST_CLICK, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"📸 捕获画面", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 335, 84, 105, 25, hWnd, (HMENU)ID_BTN_CAPTURE, NULL, NULL);
 
-            CreateWindowW(L"BUTTON", L"💾 保存当前截图", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 120, 210, 26, hWnd, (HMENU)ID_BTN_SAVE_IMAGE, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"📂 载入本地图片", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 230, 120, 210, 26, hWnd, (HMENU)ID_BTN_LOAD_IMAGE, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"💾 保存当前截图", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 112, 210, 25, hWnd, (HMENU)ID_BTN_SAVE_IMAGE, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"📂 载入本地图片", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 230, 112, 210, 25, hWnd, (HMENU)ID_BTN_LOAD_IMAGE, NULL, NULL);
 
             /* ===== 区域 2: 多语言 CBT 采样点管理 ===== */
-            CreateWindowW(L"STATIC", L"🌐 语言:", WS_CHILD | WS_VISIBLE, 15, 153, 45, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtRegionCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 60, 150, 60, 200, hWnd, (HMENU)ID_CB_CBT_REGION, NULL, NULL);
+            CreateWindowW(L"STATIC", L"🌐 语言:", WS_CHILD | WS_VISIBLE, 15, 144, 45, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtRegionCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 60, 141, 60, 200, hWnd, (HMENU)ID_CB_CBT_REGION, NULL, NULL);
             SendMessageW(g_hCbtRegionCb, CB_ADDSTRING, 0, (LPARAM)L"CN");
             SendMessageW(g_hCbtRegionCb, CB_ADDSTRING, 0, (LPARAM)L"EN");
             SendMessageW(g_hCbtRegionCb, CB_ADDSTRING, 0, (LPARAM)L"JP");
             SendMessageW(g_hCbtRegionCb, CB_ADDSTRING, 0, (LPARAM)L"RU");
             SendMessageW(g_hCbtRegionCb, CB_SETCURSEL, 0, 0);
 
-            CreateWindowW(L"STATIC", L"🎯 CBT点位:", WS_CHILD | WS_VISIBLE, 125, 153, 70, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtPointsCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 195, 150, 245, 450, hWnd, (HMENU)ID_CB_CBT_POINTS, NULL, NULL);
+            CreateWindowW(L"STATIC", L"🎯 CBT点位:", WS_CHILD | WS_VISIBLE, 125, 144, 70, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtPointsCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 195, 141, 245, 450, hWnd, (HMENU)ID_CB_CBT_POINTS, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"点位Key:", WS_CHILD | WS_VISIBLE, 15, 180, 58, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtKeyTxt = CreateWindowW(L"EDIT", L"home_scroll_button_no_energomode", WS_CHILD | WS_VISIBLE | WS_BORDER, 75, 178, 365, 22, hWnd, (HMENU)ID_TXT_CBT_KEY, NULL, NULL);
+            CreateWindowW(L"STATIC", L"点位Key:", WS_CHILD | WS_VISIBLE, 15, 169, 58, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtKeyTxt = CreateWindowW(L"EDIT", L"home_scroll_button_no_energomode", WS_CHILD | WS_VISIBLE | WS_BORDER, 75, 167, 365, 22, hWnd, (HMENU)ID_TXT_CBT_KEY, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"坐标:", WS_CHILD | WS_VISIBLE, 15, 206, 35, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtPosTxt = CreateWindowW(L"EDIT", L"217, 487", WS_CHILD | WS_VISIBLE | WS_BORDER, 50, 204, 75, 22, hWnd, (HMENU)ID_TXT_CBT_POS, NULL, NULL);
+            CreateWindowW(L"STATIC", L"坐标:", WS_CHILD | WS_VISIBLE, 15, 194, 35, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtPosTxt = CreateWindowW(L"EDIT", L"217, 487", WS_CHILD | WS_VISIBLE | WS_BORDER, 50, 192, 75, 22, hWnd, (HMENU)ID_TXT_CBT_POS, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"RGB:", WS_CHILD | WS_VISIBLE, 130, 206, 30, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtRgbTxt = CreateWindowW(L"EDIT", L"174, 149, 130", WS_CHILD | WS_VISIBLE | WS_BORDER, 162, 204, 98, 22, hWnd, (HMENU)ID_TXT_CBT_RGB, NULL, NULL);
+            CreateWindowW(L"STATIC", L"RGB:", WS_CHILD | WS_VISIBLE, 130, 194, 30, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtRgbTxt = CreateWindowW(L"EDIT", L"174, 149, 130", WS_CHILD | WS_VISIBLE | WS_BORDER, 162, 192, 98, 22, hWnd, (HMENU)ID_TXT_CBT_RGB, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"容差:", WS_CHILD | WS_VISIBLE, 265, 206, 35, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtTolTxt = CreateWindowW(L"EDIT", L"12", WS_CHILD | WS_VISIBLE | WS_BORDER, 300, 204, 40, 22, hWnd, (HMENU)ID_TXT_CBT_TOL, NULL, NULL);
+            CreateWindowW(L"STATIC", L"容差:", WS_CHILD | WS_VISIBLE, 265, 194, 35, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtTolTxt = CreateWindowW(L"EDIT", L"12", WS_CHILD | WS_VISIBLE | WS_BORDER, 300, 192, 40, 22, hWnd, (HMENU)ID_TXT_CBT_TOL, NULL, NULL);
 
-            CreateWindowW(L"BUTTON", L"🩸 血条", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 345, 202, 95, 25, hWnd, (HMENU)ID_BTN_TEST_HP, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🩸 血条", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 345, 190, 95, 25, hWnd, (HMENU)ID_BTN_TEST_HP, NULL, NULL);
 
-            CreateWindowW(L"BUTTON", L"🎯 填入拾取", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 232, 100, 26, hWnd, (HMENU)ID_BTN_CBT_APPLY_PT, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"🔬 比对测试", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 120, 232, 100, 26, hWnd, (HMENU)ID_BTN_CBT_TEST_PT, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"💾 保存特征", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 225, 232, 105, 26, hWnd, (HMENU)ID_BTN_CBT_SAVE_JSON, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"🗑️ 删除点位", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 335, 232, 105, 26, hWnd, (HMENU)ID_BTN_CBT_DEL_PT, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🎯 填入拾取", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 218, 100, 25, hWnd, (HMENU)ID_BTN_CBT_APPLY_PT, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🔬 比对测试", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 120, 218, 100, 25, hWnd, (HMENU)ID_BTN_CBT_TEST_PT, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"💾 保存特征", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 225, 218, 105, 25, hWnd, (HMENU)ID_BTN_CBT_SAVE_JSON, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🗑️ 删除点位", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 335, 218, 105, 25, hWnd, (HMENU)ID_BTN_CBT_DEL_PT, NULL, NULL);
 
-            /* ===== 区域 3: 采样点 11x11 像素放大镜 ===== */
-            g_hZoomInfoLbl = CreateWindowW(L"STATIC", L"🔍 放大镜 (10x 放大) - 采样中心: 未选择", WS_CHILD | WS_VISIBLE, 15, 263, 425, 20, hWnd, NULL, NULL, NULL);
-            g_hZoomCanvas = CreateWindowW(L"L2M_Zoom_View", L"", WS_CHILD | WS_VISIBLE | WS_BORDER, 15, 285, 95, 95, hWnd, (HMENU)ID_ZOOM_VIEW, NULL, NULL);
+            /* ===== 区域 3: 采样点 11x11 像素放大镜 (110x110 像素网格完整展示) ===== */
+            g_hZoomInfoLbl = CreateWindowW(L"STATIC", L"🔍 放大镜 (10x 放大) - 采样中心: 未选择", WS_CHILD | WS_VISIBLE, 15, 248, 425, 18, hWnd, NULL, NULL, NULL);
+            g_hZoomCanvas = CreateWindowW(L"L2M_Zoom_View", L"", WS_CHILD | WS_VISIBLE | WS_BORDER, 15, 268, 112, 112, hWnd, (HMENU)ID_ZOOM_VIEW, NULL, NULL);
 
-            g_hColorInfoLbl = CreateWindowW(L"STATIC", L"📍 鼠标取点: 点击右侧画面任意位置拾取坐标与 RGB", WS_CHILD | WS_VISIBLE, 120, 285, 320, 32, hWnd, NULL, NULL, NULL);
+            g_hColorInfoLbl = CreateWindowW(L"STATIC", L"📍 鼠标取点: 点击右侧画面任意位置拾取坐标与 RGB", WS_CHILD | WS_VISIBLE, 135, 268, 305, 36, hWnd, NULL, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"【检测与比对诊断报告】:", WS_CHILD | WS_VISIBLE, 120, 322, 160, 18, hWnd, NULL, NULL, NULL);
+            CreateWindowW(L"STATIC", L"【检测与比对诊断报告】:", WS_CHILD | WS_VISIBLE, 135, 310, 200, 18, hWnd, NULL, NULL, NULL);
+
+            /* ===== 区域 4: 诊断与状态信息框 (下移至 y=388，绝不遮挡放大镜) ===== */
             g_hStatusText = CreateWindowW(L"EDIT", L"就绪。可进行实时画面捕获、载入本地图片、放大镜观察与特征点微调。",
                                           WS_CHILD | WS_VISIBLE | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
-                                          15, 345, 425, 205, hWnd, (HMENU)ID_TXT_STATUS, NULL, NULL);
+                                          15, 388, 425, 162, hWnd, (HMENU)ID_TXT_STATUS, NULL, NULL);
 
             /* 右侧 960x540 大画板 (向右平移至 x=455) */
             g_hCanvas = CreateWindowW(L"L2M_Canvas_View", L"", WS_CHILD | WS_VISIBLE | WS_BORDER, 455, 10, 960, 540, hWnd, (HMENU)ID_CANVAS_VIEW, NULL, NULL);

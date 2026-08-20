@@ -22,6 +22,8 @@ All notable changes to this project will be documented in this file.
   - 在文件选择框（`GetOpenFileName` / `GetSaveFileName`）中加入 `OFN_NOCHANGEDIR` 标志，防止系统悄悄篡改当前进程工作目录；
   - 重构 `get_cbt_file_path`，优先通过 `GetModuleFileNameA` 动态探测 EXE 物理安装目录，生成绝对路径；
   - 增加 `ensure_parent_dir_exists`，在保存文件时若目标父目录（如 `data/cbt/`）不存在，自动递归创建。
+- **修复调试器放大镜视窗被输出信息框遮挡问题**：
+  - 重构左侧控制面板垂直 Y 轴排版，将放大镜画板尺寸修正为标准的 `112x112`（完整容纳 11x11 像素网格 10x 放大图），并将诊断输出信息框下移至 `y=388`，彻底消除层叠遮挡。
 - **消除弹窗检测与诊断报告中的中文乱码**：
   - 在 `win_debug_dialog.c` 中实现 `utf8_to_wide` 专用转换函数，将底层引擎输出的 UTF-8 格式字符串显式转换为 Unicode `wchar_t*`，彻底解决 `swprintf` 使用 `%hs` 导致的 ANSI/GBK 解码乱码。
 - **彻底解决物理鼠标模拟点击无效与“激活吞噬”问题**：
