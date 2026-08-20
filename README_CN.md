@@ -1,6 +1,6 @@
 # 🎮 Lineage2MBot 纯 C 原生多开监控与调试系统 (100% Pure C Native)
 
-[简体中文](./README_CN.md) | [English](./README.md)
+[简体中文](./README_CN.md) | [English](./README.md) | [更新历史](./CHANGELOG.md)
 
 ---
 

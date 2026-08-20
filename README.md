@@ -1,7 +1,7 @@
 # Lineage2M_Bot
 Lineage2M Multi-Client Monitor &amp; Visual Debugger
 
-[English](./README.md) | [简体中文](./README_CN.md)
+[English](./README.md) | [简体中文](./README_CN.md) | [Changelog](./CHANGELOG.md)
 
 ---
 
