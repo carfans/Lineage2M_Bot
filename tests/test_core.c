@@ -13,6 +13,7 @@
 #include "../include/l2m_popup.h"
 #include "../include/l2m_cbt.h"
 #include "../include/l2m_api.h"
+#include "../include/l2m_window_profile.h"
 
 static int g_tests_passed = 0;
 static int g_tests_total = 0;
@@ -92,12 +93,12 @@ static void test_cbt_manager(void) {
     /* 验证地图区域 map_box_config 完整参数解析与存取 */
     L2MMapZoneConfig map_cfg;
     bool has_map_cfg = l2m_cbt_get_map_zone_config(&cfg, &map_cfg);
-    TEST_ASSERT(has_map_cfg && map_cfg.enabled, "map_box_config loaded with enabled=true");
-    TEST_ASSERT(map_cfg.x == 10 && map_cfg.y == 10 && map_cfg.width == 135 && map_cfg.height == 95,
-                "map_box_config ROI (10, 10, 135, 95) parsed correctly");
-    TEST_ASSERT(map_cfg.badge_offset_x == 20 && map_cfg.badge_width == 115,
-                "map_box_config badge sub-ROI parsed correctly");
-    TEST_ASSERT(map_cfg.min_green_ratio >= 0.010f && map_cfg.max_bg_brightness >= 120.0f,
+    TEST_ASSERT(has_map_cfg, "map_box_config parsed successfully");
+    TEST_ASSERT(map_cfg.x == 25 && map_cfg.y == 59 && map_cfg.width == 144 && map_cfg.height == 94,
+                "map_box_config ROI (25, 59, 144, 94) parsed correctly");
+    TEST_ASSERT(map_cfg.badge_offset_x == 2 && map_cfg.badge_width == 50,
+                "map_box_config badge sub-ROI (2, 2, 50, 20) parsed correctly");
+    TEST_ASSERT(map_cfg.min_blue_ratio >= 0.010f && map_cfg.max_bg_brightness >= 120.0f,
                 "map_box_config threshold parameters parsed correctly");
 
     /* 验证修改与设置地图区域配置 */
@@ -419,11 +420,11 @@ static void test_popup_recognition_engine(void) {
     l2m_image_free(dialog_img);
 }
 
-/* 6. 测试左上角地图框识别与安全/普通/战斗区域判别引擎 */
+/* 6. 测试左上角地图框识别与蓝色Safe/浅咖色Common/红网格/中心朝向判别引擎 */
 static void test_map_zone_recognition(void) {
-    printf("[*] Testing Minimap Frame & Safety/Normal Zone Recognition...\n");
+    printf("[*] Testing Minimap Frame with Blue Safe, Brown Common, Red Grid & Player Heading Angle...\n");
 
-    /* 6.1 安全区域 (Safety / Peace Zone / 村庄) 模拟画面 */
+    /* 6.1 安全区域 (Safe Zone / 蓝色标识) 模拟画面 */
     L2MImageBuffer* safe_map = l2m_image_create(135, 95, L2M_FMT_RGB888);
     for (int y = 0; y < 95; y++) {
         uint8_t* r = safe_map->data + y * safe_map->stride;
@@ -432,22 +433,40 @@ static void test_map_zone_recognition(void) {
             r[x * 3 + 0] = 30; r[x * 3 + 1] = 35; r[x * 3 + 2] = 40;
         }
     }
-    /* 在右下角区域 (x: 40~100, y: 30~50) 绘制高亮绿色安全文字/盾牌徽章 (50, 220, 60) */
-    for (int y = 30; y < 50; y++) {
+    /* 在左上角区域 (x: 4~40, y: 4~20) 绘制高亮蓝色 Safe 徽标 (40, 140, 240) */
+    for (int y = 4; y < 20; y++) {
         uint8_t* r = safe_map->data + y * safe_map->stride;
-        for (int x = 40; x < 100; x++) {
-            r[x * 3 + 0] = 50; r[x * 3 + 1] = 220; r[x * 3 + 2] = 60;
+        for (int x = 4; x < 40; x++) {
+            r[x * 3 + 0] = 40; r[x * 3 + 1] = 140; r[x * 3 + 2] = 240;
+        }
+    }
+    /* 在中心位置 (67, 47) 绘制白色玩家箭头与正上方扇形橙色视角 (230, 120, 20) */
+    for (int y = 45; y <= 49; y++) {
+        uint8_t* r = safe_map->data + y * safe_map->stride;
+        for (int x = 65; x <= 69; x++) {
+            r[x * 3 + 0] = 255; r[x * 3 + 1] = 255; r[x * 3 + 2] = 255;
+        }
+    }
+    /* 视角向上方延伸 (y: 35~44, x: 62~72) */
+    for (int y = 35; y < 45; y++) {
+        uint8_t* r = safe_map->data + y * safe_map->stride;
+        for (int x = 62; x <= 72; x++) {
+            r[x * 3 + 0] = 230; r[x * 3 + 1] = 120; r[x * 3 + 2] = 20;
         }
     }
 
     L2MMapBoxResult safe_res;
     bool safe_ok = l2m_detect_map_box(safe_map, 10, 10, &safe_res);
     TEST_ASSERT(safe_ok && safe_res.detected, "l2m_detect_map_box successfully detected map frame");
-    TEST_ASSERT(safe_res.zone_type == L2M_ZONE_SAFETY, "Map zone recognized as L2M_ZONE_SAFETY (Village/Peace)");
-    TEST_ASSERT(safe_res.green_ratio > 0.05f, "Green safety ratio > 5%");
-    TEST_ASSERT(safe_res.confidence >= 80.0f, "Safety zone confidence >= 80");
+    TEST_ASSERT(safe_res.zone_type == L2M_ZONE_SAFETY, "Map zone recognized as L2M_ZONE_SAFETY (Safe/Blue)");
+    TEST_ASSERT(safe_res.blue_safe_ratio > 0.05f, "Blue safe ratio > 5%");
+    TEST_ASSERT(safe_res.has_player_indicator, "Center player indicator detected");
+    TEST_ASSERT(safe_res.player_center_pos.x == 77 && safe_res.player_center_pos.y == 57, "Player center pos matches (77, 57)");
+    /* 朝向正上方 (正北 0° / 360° 附近，误差小于 20°) */
+    TEST_ASSERT(safe_res.player_heading_angle <= 25.0f || safe_res.player_heading_angle >= 335.0f,
+                "Player heading angle is facing North (~0 deg)");
 
-    /* 6.2 普通区域 (Normal Zone / 野外常规战斗区) 模拟画面 */
+    /* 6.2 普通区域 (Common Zone / 浅咖色标识) 模拟画面 */
     L2MImageBuffer* normal_map = l2m_image_create(135, 95, L2M_FMT_RGB888);
     for (int y = 0; y < 95; y++) {
         uint8_t* r = normal_map->data + y * normal_map->stride;
@@ -455,21 +474,21 @@ static void test_map_zone_recognition(void) {
             r[x * 3 + 0] = 32; r[x * 3 + 1] = 36; r[x * 3 + 2] = 42;
         }
     }
-    /* 在右下角区域绘制常规白色/浅灰色文字 (200, 200, 200) */
-    for (int y = 30; y < 50; y++) {
+    /* 在左上角区域绘制浅咖色 Common 徽标 (160, 110, 60) */
+    for (int y = 4; y < 20; y++) {
         uint8_t* r = normal_map->data + y * normal_map->stride;
-        for (int x = 40; x < 100; x++) {
-            r[x * 3 + 0] = 200; r[x * 3 + 1] = 200; r[x * 3 + 2] = 200;
+        for (int x = 4; x < 40; x++) {
+            r[x * 3 + 0] = 160; r[x * 3 + 1] = 110; r[x * 3 + 2] = 60;
         }
     }
 
     L2MMapBoxResult normal_res;
     bool normal_ok = l2m_detect_map_box(normal_map, 10, 10, &normal_res);
     TEST_ASSERT(normal_ok && normal_res.detected, "Normal map detected successfully");
-    TEST_ASSERT(normal_res.zone_type == L2M_ZONE_NORMAL, "Map zone recognized as L2M_ZONE_NORMAL (Field)");
-    TEST_ASSERT(normal_res.white_gray_ratio > 0.05f, "White/gray normal ratio > 5%");
+    TEST_ASSERT(normal_res.zone_type == L2M_ZONE_NORMAL, "Map zone recognized as L2M_ZONE_NORMAL (Common/Brown)");
+    TEST_ASSERT(normal_res.brown_common_ratio > 0.05f, "Brown common ratio > 5%");
 
-    /* 6.3 自由战斗区域 (Combat Zone / 危险PVP区) 模拟画面 */
+    /* 6.3 不可记忆红色网格区域 (Combat / Red Grid) 模拟画面 */
     L2MImageBuffer* combat_map = l2m_image_create(135, 95, L2M_FMT_RGB888);
     for (int y = 0; y < 95; y++) {
         uint8_t* r = combat_map->data + y * combat_map->stride;
@@ -477,42 +496,164 @@ static void test_map_zone_recognition(void) {
             r[x * 3 + 0] = 30; r[x * 3 + 1] = 35; r[x * 3 + 2] = 40;
         }
     }
-    /* 在右下角区域绘制高亮红色战斗标记 (230, 45, 45) */
-    for (int y = 30; y < 50; y++) {
+    /* 绘制红色战斗区角标 (210, 45, 45) */
+    for (int y = 4; y < 20; y++) {
         uint8_t* r = combat_map->data + y * combat_map->stride;
-        for (int x = 40; x < 100; x++) {
-            r[x * 3 + 0] = 230; r[x * 3 + 1] = 45; r[x * 3 + 2] = 45;
+        for (int x = 4; x < 40; x++) {
+            r[x * 3 + 0] = 210; r[x * 3 + 1] = 45; r[x * 3 + 2] = 45;
+        }
+    }
+    /* 绘制红色不可记忆网格线条 (230, 35, 35) */
+    for (int y = 0; y < 95; y += 4) {
+        uint8_t* r = combat_map->data + y * combat_map->stride;
+        for (int x = 0; x < 135; x++) {
+            r[x * 3 + 0] = 230; r[x * 3 + 1] = 35; r[x * 3 + 2] = 35;
         }
     }
 
     L2MMapBoxResult combat_res;
     bool combat_ok = l2m_detect_map_box(combat_map, 10, 10, &combat_res);
     TEST_ASSERT(combat_ok && combat_res.detected, "Combat map detected successfully");
-    TEST_ASSERT(combat_res.zone_type == L2M_ZONE_COMBAT, "Map zone recognized as L2M_ZONE_COMBAT (PVP)");
+    TEST_ASSERT(combat_res.zone_type == L2M_ZONE_COMBAT, "Map zone recognized as L2M_ZONE_COMBAT");
+    TEST_ASSERT(combat_res.has_red_grid, "Red grid detected (No-Memory zone)");
 
     /* 6.4 全屏画面 l2m_detect_map_zone 联合测试 */
     L2MImageBuffer* full_screen = l2m_image_create(960, 540, L2M_FMT_RGB888);
     memset(full_screen->data, 20, (size_t)full_screen->stride * full_screen->height);
-    /* 将 safe_map 贴入全屏画面的 (10, 10) */
-    for (int y = 0; y < 95; y++) {
+    /* 将 safe_map 贴入全屏画面的 (25, 59) */
+    for (int y = 0; y < 94; y++) {
         uint8_t* src_r = safe_map->data + y * safe_map->stride;
-        uint8_t* dst_r = full_screen->data + (y + 10) * full_screen->stride + (10 * 3);
+        uint8_t* dst_r = full_screen->data + (y + 59) * full_screen->stride + (25 * 3);
         memcpy(dst_r, src_r, 135 * 3);
     }
 
     L2MCbtConfig cbt_cfg;
     memset(&cbt_cfg, 0, sizeof(cbt_cfg));
-    cbt_cfg.map_box_roi = (L2MRect){10, 10, 135, 95};
+    cbt_cfg.map_zone_cfg.x = 25;
+    cbt_cfg.map_zone_cfg.y = 59;
+    cbt_cfg.map_zone_cfg.width = 144;
+    cbt_cfg.map_zone_cfg.height = 94;
+    cbt_cfg.map_zone_cfg.enabled = true;
+    cbt_cfg.map_box_roi = (L2MRect){25, 59, 144, 94};
 
-    L2MMapBoxResult full_res;
-    bool full_ok = l2m_detect_map_zone(full_screen, &cbt_cfg, &full_res);
-    TEST_ASSERT(full_ok && full_res.detected, "l2m_detect_map_zone on full 960x540 screen succeeded");
-    TEST_ASSERT(full_res.zone_type == L2M_ZONE_SAFETY, "Full screen recognized safety zone correctly");
+    L2MMapBoxResult full_map_res;
+    bool full_map_ok = l2m_detect_map_zone(full_screen, &cbt_cfg, &full_map_res);
+    TEST_ASSERT(full_map_ok && full_map_res.detected, "l2m_detect_map_zone on full 960x540 screen succeeded");
+    TEST_ASSERT(full_map_res.zone_type == L2M_ZONE_SAFETY, "Full screen recognized safety zone correctly");
 
     l2m_image_free(safe_map);
     l2m_image_free(normal_map);
     l2m_image_free(combat_map);
     l2m_image_free(full_screen);
+}
+
+/* 7. 测试游戏窗口对应配置、多开实例管理与多语言角色绑定引擎 */
+static void test_window_profile_manager(void) {
+    printf("[*] Testing Window Profile Manager, Multi-Instance Binding & Character Recognition...\n");
+
+    /* 7.1 测试加载 data/window_profiles.json 配置文件 */
+    L2MWindowProfileList list;
+    bool load_ok = l2m_window_profiles_load("data/window_profiles.json", &list);
+    TEST_ASSERT(load_ok, "l2m_window_profiles_load successfully loaded window_profiles.json");
+    TEST_ASSERT(list.count >= 4, "Loaded at least 4 window profiles");
+
+    /* 验证第 1 个配置 (EN / Andyusa) */
+    TEST_ASSERT(strcmp(list.profiles[0].character_name, "Andyusa") == 0, "Profile 1 character_name is 'Andyusa'");
+    TEST_ASSERT(strcmp(list.profiles[0].region, "EN") == 0, "Profile 1 region is 'EN'");
+    TEST_ASSERT(list.profiles[0].match_rule == L2M_WIN_MATCH_INDEX && list.profiles[0].match_window_index == 0, "Profile 1 matches Window Index 0");
+
+    /* 验证第 2 个配置 (CN / 中文角色名: 狂风舞者) */
+    TEST_ASSERT(strcmp(list.profiles[1].character_name, "狂风舞者") == 0, "Profile 2 character_name is Chinese '狂风舞者'");
+    TEST_ASSERT(strcmp(list.profiles[1].region, "CN") == 0, "Profile 2 region is 'CN'");
+    TEST_ASSERT(list.profiles[1].match_rule == L2M_WIN_MATCH_INDEX && list.profiles[1].match_window_index == 1, "Profile 2 matches Window Index 1");
+
+    /* 7.2 测试窗口智能匹配引擎 (解耦窗口标题与角色名称) */
+    /* 模拟中文客户端窗口实例：窗口标题是通用模拟器标题 "Lineage2M(2)"，非角色名 */
+    L2MWindowInstance win_cn;
+    memset(&win_cn, 0, sizeof(win_cn));
+    win_cn.pid = 8848;
+    strncpy(win_cn.process_name, "Lineage2M.exe", sizeof(win_cn.process_name) - 1);
+    strncpy(win_cn.window_title, "Lineage2M(2)", sizeof(win_cn.window_title) - 1);
+    win_cn.client_width = 960;
+    win_cn.client_height = 540;
+
+    L2MWindowProfile matched_cn;
+    memset(&matched_cn, 0, sizeof(matched_cn));
+    bool match_ok = l2m_window_profile_match(&list, &win_cn, 1, &matched_cn);
+    TEST_ASSERT(match_ok, "l2m_window_profile_match successfully matched 2nd window instance");
+    TEST_ASSERT(strcmp(matched_cn.character_name, "狂风舞者") == 0, "Matched character name is '狂风舞者'");
+    TEST_ASSERT(strcmp(matched_cn.region, "CN") == 0, "Matched region is 'CN'");
+
+    /* 模拟第 1 个窗口实例 */
+    L2MWindowInstance win_en;
+    memset(&win_en, 0, sizeof(win_en));
+    win_en.pid = 8847;
+    strncpy(win_en.process_name, "Lineage2M.exe", sizeof(win_en.process_name) - 1);
+    strncpy(win_en.window_title, "PURPLE - Lineage2M", sizeof(win_en.window_title) - 1);
+    win_en.client_width = 960;
+    win_en.client_height = 540;
+
+    L2MWindowProfile matched_en;
+    memset(&matched_en, 0, sizeof(matched_en));
+    bool match_en_ok = l2m_window_profile_match(&list, &win_en, 0, &matched_en);
+    TEST_ASSERT(match_en_ok, "l2m_window_profile_match successfully matched 1st window instance");
+    TEST_ASSERT(strcmp(matched_en.character_name, "Andyusa") == 0, "Matched character name is 'Andyusa'");
+    TEST_ASSERT(strcmp(matched_en.region, "EN") == 0, "Matched region is 'EN'");
+
+    /* 7.3 测试配置保存与回读 */
+    bool save_ok = l2m_window_profiles_save("build/test_profiles.json", &list);
+    TEST_ASSERT(save_ok, "l2m_window_profiles_save successfully saved test_profiles.json");
+
+    L2MWindowProfileList list_reload;
+    bool reload_ok = l2m_window_profiles_load("build/test_profiles.json", &list_reload);
+    TEST_ASSERT(reload_ok && list_reload.count == list.count, "Reloaded saved profiles successfully");
+    TEST_ASSERT(strcmp(list_reload.profiles[1].character_name, "狂风舞者") == 0, "Reloaded Chinese character name matches");
+
+    /* 7.4 测试按窗口名称/标题手动保存绑定 (l2m_save_window_profile_by_title) */
+    bool save_by_title_ok = l2m_save_window_profile_by_title("Lineage2M_CN_Main", "天下无双", "CN", "手动绑定中文测试");
+    TEST_ASSERT(save_by_title_ok, "l2m_save_window_profile_by_title succeeded");
+
+    L2MWindowProfile loaded_by_title;
+    memset(&loaded_by_title, 0, sizeof(loaded_by_title));
+    bool load_by_title_ok = l2m_load_window_profile_by_title("Lineage2M_CN_Main", &loaded_by_title);
+    TEST_ASSERT(load_by_title_ok, "l2m_load_window_profile_by_title loaded profile");
+    TEST_ASSERT(strcmp(loaded_by_title.character_name, "天下无双") == 0, "Saved character name '天下无双' verified");
+    TEST_ASSERT(strcmp(loaded_by_title.region, "CN") == 0, "Saved region 'CN' verified");
+
+    /* 7.5 测试多窗口网格排版参数 */
+    int32_t aligned_count = 0;
+    /* 无真实游戏窗口时安全返回 false */
+    l2m_align_game_windows(L2M_ALIGN_GRID_2X2, 960, 540, &aligned_count);
+    TEST_ASSERT(aligned_count >= 0, "l2m_align_game_windows executed safely");
+
+    /* 7.6 测试 data/id/<name>.json 独立角色配置文件读取与语言绑定功能 */
+    L2MIdConfig andy_cfg;
+    bool id_load_ok = l2m_id_profile_load("Andyusa", &andy_cfg);
+    TEST_ASSERT(id_load_ok, "l2m_id_profile_load('Andyusa') loaded data/id/Andyusa.json successfully");
+    TEST_ASSERT(strcmp(andy_cfg.region, "EN") == 0, "Andyusa.json REGION is 'EN'");
+    TEST_ASSERT(andy_cfg.low_hp_dodge == true, "Andyusa.json LOW_HP_DODGE is true");
+    TEST_ASSERT(andy_cfg.peace_mode == false, "Andyusa.json PEACE_MODE is false (temporarily disabled)");
+    TEST_ASSERT(andy_cfg.pvp_evade == false, "Andyusa.json PVP_EVADE is false (temporarily disabled)");
+    TEST_ASSERT(andy_cfg.overweight_afk == 80, "Andyusa.json OVERWEIGHT_AFK is 80");
+
+    /* 测试读取语言地区 */
+    char reg_buf[16] = {0};
+    bool get_reg_ok = l2m_id_profile_get_region("Andyusa", reg_buf, sizeof(reg_buf));
+    TEST_ASSERT(get_reg_ok && strcmp(reg_buf, "EN") == 0, "l2m_id_profile_get_region returned 'EN'");
+
+    /* 测试新建/保存中文角色独立配置文件 */
+    bool id_set_reg_ok = l2m_id_profile_set_region("ChineseHero", "CN");
+    TEST_ASSERT(id_set_reg_ok, "l2m_id_profile_set_region('ChineseHero', 'CN') created/saved data/id/ChineseHero.json");
+
+    L2MIdConfig hero_cfg;
+    bool hero_load_ok = l2m_id_profile_load("ChineseHero", &hero_cfg);
+    TEST_ASSERT(hero_load_ok && strcmp(hero_cfg.region, "CN") == 0, "Reloaded ChineseHero.json REGION is 'CN'");
+
+    /* 测试扫描 data/id/ 目录下的所有配置文件 */
+    char id_list[16][64];
+    int32_t id_count = 0;
+    bool enum_id_ok = l2m_enum_id_profiles(id_list, 16, &id_count);
+    TEST_ASSERT(enum_id_ok && id_count >= 1, "l2m_enum_id_profiles found at least 1 profile in data/id/");
 }
 
 int main(void) {
@@ -533,6 +674,8 @@ int main(void) {
     test_popup_recognition_engine();
     printf("\n");
     test_map_zone_recognition();
+    printf("\n");
+    test_window_profile_manager();
 
     l2m_shutdown_engine();
 
