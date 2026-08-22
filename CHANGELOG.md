@@ -57,7 +57,7 @@ All notable changes to this project will be documented in this file.
     2. **游戏正向白名单**：严格匹配官方客户端（`Lineage2M.exe`、`Purple.exe`、`UnrealWindow`）与主流安卓模拟器（雷电 `dnplayer`、夜神 `Nox`、网易 `MuMu`、蓝叠 `HD-Player`、逍遥 `MEmu`）；
     3. **单一数据源统一**：主界面 `refresh_multi_clients` 与调试工具全面统一调用底层引擎 [`l2m_enum_game_windows`](file:///d:/Work/SvnLin/Lineage2M_Bot_C/Lineage2M_Bot/src/core/window_profile_manager.c)，彻底消除重复代码与判定分歧。
 - **全量自动化测试扩充 (`tests/test_core.c`)**：
-  - 新增针对中文角色独立配置（`狂风舞者`）与 `auto_dismiss_popup` 独立持久化/回读的自动化测试用例，全量单元测试扩充至 **122 / 122 项 100% 纯净通过**。
+  - 新增针对中文角色独立配置（`狂风舞者`）、`auto_dismiss_popup` 独立持久化/回读、多显示器枚举、纯配置驱动血条 97px/100px 线性计算的自动化测试用例，全量单元测试扩充至 **145 / 145 项 100% 纯净通过**。
 
 ---
 

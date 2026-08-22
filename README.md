@@ -16,15 +16,21 @@ This project is completely decoupled from Python runtimes and bloated dependenci
 ### 1. 📊 Pure C Native Multi-Client High-Frequency Monitoring Workbench (`Lineage2MBot_GUI.exe`)
 - **Real-Time Multi-Client Monitoring Table (`ListView`)**:
   - Automatically discovers and lists all active Lineage 2M game windows across the operating system;
-  - 7 full-dimension columns updated in real-time: **Game Window HWND / Resolution / Language & Region / HP (%) / Popup Defense Interceptions / Running Status / Recent Action Log**;
+  - 7 full-dimension columns updated in real-time: **Game Window HWND / Resolution / Region / HP (%) / Auto Popup Defense / Running Status / Recent Action Log**;
   - Double-click any client row to instantly launch its dedicated visual debugger.
-- **Microsecond Concurrent Background Worker Thread (`MultiClientWorkerThread`)**:
-  - A comprehensive visual decision cycle (HP detection + popup defense) executes in only **0.3 microseconds**;
-  - Concurrently polls all checked client instances with ultra-low CPU power consumption;
-  - Supports independent popup defense (automatically checks "Do not show again" and clicks close) and low-HP emergency escape protection.
+- **🖥️ Multi-Monitor Detection & Cross-Display Smart Grid Alignment**:
+  - Dynamically enumerates all connected physical displays (primary, secondary screens, workspace bounds, and heterogeneous resolutions);
+  - Integrates a 【🖥️ Monitor】 dropdown and 【🪟 4-Grid Align】 button on both the main dashboard and debugger to arrange game windows in a seamless 2x2 grid on any selected display.
+- **🌐 Region Selection & Dual-Layer Bidirectional Persistence**:
+  - Supports live dropdown switching between `CN`, `TW`, `EN`, `JP`, `KR`, and `RU`;
+  - Clicking 【💾 Save Config】 immediately writes region, popup defense flags, low HP thresholds, and recover HP thresholds into both `data/id/<name>.json` and `data/window_profiles.json`.
+- **🩸 30ms Ultra-High-Frequency HP Monitoring & Closed-Loop Combat State Machine**:
+  - **Microsecond ROI Local Capture (`l2m_capture_window_roi`)** + **Zero-Copy BGR Instant Calculation** achieving ~33 FPS continuous monitoring;
+  - **Closed-Loop Combat/Rest State Machine**: When HP drops below threshold (e.g. < 30%), triggers instant teleport home and enters resting state; automatically resumes combat once HP recovers (e.g. >= 80%);
+  - **Frequency-Divided Popup Inspection**: Full-screen popup detection and CBT loading are decoupled to run once every second (~30 cycles), minimizing CPU consumption.
 - **🛑 Global Emergency Stop Hotkey [Ctrl + Q]**:
   - Registers a Windows OS kernel-level global hotkey with top-tier priority;
-  - Instantly terminates all background multi-client inspections and releases physical mouse/keyboard control from anywhere, accompanied by an audible warning beep and highlighted red error logs.
+  - Instantly terminates all background multi-client inspections and releases physical mouse/keyboard control from anywhere.
 
 ---
 
@@ -32,40 +38,39 @@ This project is completely decoupled from Python runtimes and bloated dependenci
 - **960x540 HD Double-Buffered Rendering Canvas**:
   - Leverages GDI double buffering and `HALFTONE` smooth interpolation for flicker-free real-time game stream rendering;
   - Clicking or dragging anywhere on the canvas instantly calculates inverse coordinate mapping to absolute image coordinates and real-time RGB values.
+- **🩸 Visual HP Bar Debugging, One-Click Color Picking & CBT Persistence**:
+  - Dedicated HP Bar Parameter Panel: fine-tune offset `(offset_x, offset_y)`, physical width `width`, height `height`, primary color/tolerance, and secondary color/tolerance;
+  - **One-Click Color Picking**: Populates primary/secondary target color inputs directly from sampled canvas/magnifier pixels;
+  - **Real-Time HUD Overlay**: Renders cyan bounding box, bright red effective HP progress bar, and yellow vertical endpoint ruler;
+  - **Multi-Language CBT Sync**: Saves calibrated parameters directly into `data/cbt/<REGION>.json` under `"hp_bar_config"`.
 - **🔍 11x11 Pixel-Level Magnifier Preview (`L2M_Zoom_View`)**:
   - An independent dedicated canvas rendering the **11x11 pixel grid** surrounding the current sample point at **10x magnification**;
   - Features a yellow boundary box and a red center crosshair for pinpoint pixel precision;
   - Microsecond two-way synchronization with canvas clicks, CBT dropdown selections, and live color comparisons.
 - **🌐 Multi-Language CBT Feature Sampling Point Manager**:
-  - Supports one-click switching between `CN` (Simplified Chinese), `EN` (English), `JP` (Japanese), and `RU` (Russian);
+  - Supports one-click switching between `CN`, `EN`, `JP`, and `RU`;
   - Native vertical scrollbar (`WS_VSCROLL`) dropdown list supporting smooth mouse wheel scrolling across hundreds of feature points;
-  - **[🎯 Pick Point]**: Populates input fields with coordinates and RGB values picked from the main canvas;
-  - **[🔬 Compare Test]**: Calculates real-time color delta against the live frame with diagnostic output `✅ Match Passed (Delta <= Tolerance)`;
-  - **[💾 Save Feature Point]**: Persists modified or newly added sample points directly into the corresponding language JSON configuration;
-  - **[🗑️ Delete Point]**: Removes the selected feature point from the configuration file.
+  - Supports point picking, live comparison testing, saving, and deletion.
 - **Dynamic Named Popup Management & Multidimensional Diagnostics**:
-  - Full support for **Custom Named Popup Profiles** (not limited to fixed 3 categories), allowing users to create, rename, edit descriptions, and delete any popup profile (e.g., top-left tips, resurrection confirms, event banners);
-  - **Deep CBT Sampling Point Linking**: Enables popups to link specific CBT feature points, verifying real-time pixel RGB differences alongside geometric bounds;
-  - Real-time HUD rendering: yellow scan ROI box, green confirmation button bounds, red click crosshair, and cyan checkbox bounds;
-  - **[💾 Save / Update]**: Supports one-click creation of new popup keys or updating existing ROI, descriptions, and linked CBTs back into JSON;
-  - **[➕ New] / [🗑️ Delete]**: Supports instant input reset and permanent deletion of popup profiles;
-  - **[🖱️ Test Close]**: Simulates the two-step action: "Check box first, then click Confirm/Close".
+  - Full support for custom named popup profiles with editable scan ROI, descriptions, linked CBT points, and deletion;
+  - Live HUD rendering with yellow scan ROI, green confirm button, red click target, and cyan checkbox;
+  - Supports 【🖱️ Test Close】 to simulate check-then-confirm actions.
 - **Screenshot Capture & Offline Image Debugging**:
-  - **[💾 Save Screenshot]**: Prompts a save dialog to export the current frame as a lossless 24-bit BMP image;
-  - **[📂 Load Image]**: Opens local historical screenshots for offline coordinate picking, popup diagnostics, HP calculation, and CBT feature point comparisons.
+  - Supports exporting lossless 24-bit BMP images or loading local historical screenshots for offline diagnostics.
 
 ---
 
-### 3. 🧠 Computer Vision & Game State Analysis Engine
+### 3. 🧠 Computer Vision & Pure Configuration-Driven Engine
+- **Pure Configuration-Driven HP Analysis Engine ([`src/game/hp_engine.c`])**:
+  - **Zero Hardcoded Constants**: Blood bar dimensions, offsets, colors, and tolerances are 100% driven by JSON configuration;
+  - **Left-to-Right Continuity Scanning**: Column-wise continuous scanning with 1px anti-aliasing gap tolerance, truncating immediately upon 2 consecutive dark background columns;
+  - Pure linear calculation `(continuous_end + 1) * 100 / config->width`, providing instant 100% full-HP response and millisecond drop detection.
 - **Popup Defense & Button Recognition Engine ([`src/game/popup_engine.c`])**:
-  - **Dark Background Heuristic**: Evaluates dark gray/blue pixel ratios (threshold >= 45%) and average luminance (< 90) to eliminate false positives in normal gameplay scenes;
-  - **Button Color & Connected-Component Analysis**: Accurately detects orange confirm/jump buttons (RGB `[220, 115, 10]`) and gray close buttons (RGB `[80, 85, 90]`);
-  - **"Do Not Show Again" Checkbox Locator**: Intelligent corner detection to locate the exact center for checking;
-  - **Full Popup Automated Inspection**: `l2m_detect_all_popups` iterates across all active named popup profiles across the screen.
-- **HP Bar Analysis Engine ([`src/game/hp_engine.c`])**:
-  - Dual red/orange tolerance mask horizontal boundary scanning for exact HP percentage calculation.
-- **Low-Level Vision Operator Library ([`src/vision/`])**:
-  - Pure C color space conversions, multi-core color mask extraction, binary morphological operations (dilation, erosion, closing), two-pass connected-component labeling, and bounding box fitting.
+  - **Dark Background Heuristic**: Evaluates dark gray/blue pixel ratios and average luminance to eliminate false positives in normal gameplay scenes;
+  - **Button Color & Connected-Component Analysis**: Accurately detects orange confirm/jump buttons and gray close buttons;
+  - **"Do Not Show Again" Checkbox Locator**: Intelligent corner detection to locate the exact center for checking.
+- **High-Precision 3-Stage Window Filter Pipeline ([`src/core/window_profile_manager.c`])**:
+  - Own-PID / Class / Title blacklist + Official client/emulator whitelist + Dimension checks, 100% eliminating self and debugger misidentification.
 
 ---
 
