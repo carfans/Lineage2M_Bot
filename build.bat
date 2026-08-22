@@ -30,12 +30,12 @@ echo [*] Using Compiler: %CC%
 if not exist "bin" mkdir bin
 if not exist "build" mkdir build
 
-set "CORE_SRCS=src\core\image_buffer.c src\core\logger.c src\core\cbt_manager.c src\vision\color_mask.c src\vision\morphology.c src\vision\contour.c src\game\hp_engine.c src\game\popup_engine.c src\game\map_zone_engine.c src\platform\win_capture.c src\platform\win_input.c src\api\l2m_api.c"
+set "CORE_SRCS=src\core\image_buffer.c src\core\logger.c src\core\cbt_manager.c src\core\window_profile_manager.c src\vision\color_mask.c src\vision\morphology.c src\vision\contour.c src\game\hp_engine.c src\game\popup_engine.c src\game\map_zone_engine.c src\platform\win_capture.c src\platform\win_input.c src\api\l2m_api.c"
 set "GUI_SRCS=src\gui\win_debug_dialog.c src\gui\win_main_gui.c src\main_app.c"
 
 echo.
 echo [*] [1/2] Building Desktop Application: bin\Lineage2MBot_GUI.exe ...
-"%CC%" -O3 -Wall -Wextra -std=c99 -DL2M_USE_STATIC -municode -o bin\Lineage2MBot_GUI.exe %CORE_SRCS% %GUI_SRCS% -Iinclude -lgdi32 -luser32 -lcomctl32 -lcomdlg32 -mwindows
+"%CC%" -O3 -Wall -Wextra -std=c99 -DL2M_USE_STATIC -municode -o bin\Lineage2MBot_GUI.exe %CORE_SRCS% %GUI_SRCS% -Iinclude -lgdi32 -luser32 -lcomctl32 -lcomdlg32 -lpsapi -mwindows
 if %errorlevel% neq 0 (
     echo [ERROR] Failed to compile Lineage2MBot_GUI.exe!
     exit /b 1
@@ -44,8 +44,8 @@ copy /y bin\Lineage2MBot_GUI.exe . > nul
 echo [+] bin\Lineage2MBot_GUI.exe successfully built!
 
 echo.
-echo [*] [2/2] Building Dynamic Library: bin\Lineage2MBot.dll ...
-"%CC%" -O3 -Wall -Wextra -std=c99 -shared -DL2M_BUILD_DLL -o bin\Lineage2MBot.dll %CORE_SRCS% -Iinclude -lgdi32 -luser32
+echo [*] [2/2] Building Dynamic Link Library: bin\Lineage2MBot.dll ...
+"%CC%" -O3 -Wall -Wextra -std=c99 -shared -DL2M_BUILD_DLL -o bin\Lineage2MBot.dll %CORE_SRCS% -Iinclude -lgdi32 -luser32 -lpsapi -Wl,--out-implib,bin\libLineage2MBot.a
 if %errorlevel% neq 0 (
     echo [ERROR] Failed to compile Lineage2MBot.dll!
     exit /b 1

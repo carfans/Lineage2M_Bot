@@ -30,6 +30,7 @@ $coreSrcs = @(
     "src/core/image_buffer.c",
     "src/core/logger.c",
     "src/core/cbt_manager.c",
+    "src/core/window_profile_manager.c",
     "src/vision/color_mask.c",
     "src/vision/morphology.c",
     "src/vision/contour.c",
@@ -49,7 +50,7 @@ $guiSrcs = @(
 
 # 1. Build Native Desktop GUI Application
 Write-Host "`n[*] [1/2] Building Desktop Application: bin/Lineage2MBot_GUI.exe ..." -ForegroundColor Yellow
-$guiArgs = @("-O3", "-Wall", "-Wextra", "-std=c99", "-DL2M_USE_STATIC", "-municode", "-o", "bin/Lineage2MBot_GUI.exe") + $coreSrcs + $guiSrcs + @("-Iinclude", "-lgdi32", "-luser32", "-lcomctl32", "-lcomdlg32", "-mwindows")
+$guiArgs = @("-O3", "-Wall", "-Wextra", "-std=c99", "-DL2M_USE_STATIC", "-municode", "-o", "bin/Lineage2MBot_GUI.exe") + $coreSrcs + $guiSrcs + @("-Iinclude", "-lgdi32", "-luser32", "-lcomctl32", "-lcomdlg32", "-lpsapi", "-mwindows")
 & $gccExe $guiArgs
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[ERROR] Failed to compile Lineage2MBot_GUI.exe!" -ForegroundColor Red
@@ -60,7 +61,7 @@ Write-Host "[+] bin/Lineage2MBot_GUI.exe successfully built!" -ForegroundColor G
 
 # 2. Build Dynamic Link Library DLL
 Write-Host "`n[*] [2/2] Building Dynamic Link Library: bin/Lineage2MBot.dll ..." -ForegroundColor Yellow
-$dllArgs = @("-O3", "-Wall", "-Wextra", "-std=c99", "-shared", "-DL2M_BUILD_DLL", "-o", "bin/Lineage2MBot.dll") + $coreSrcs + @("-Iinclude", "-lgdi32", "-luser32")
+$dllArgs = @("-O3", "-Wall", "-Wextra", "-std=c99", "-shared", "-DL2M_BUILD_DLL", "-o", "bin/Lineage2MBot.dll") + $coreSrcs + @("-Iinclude", "-lgdi32", "-luser32", "-lpsapi")
 & $gccExe $dllArgs
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[ERROR] Failed to compile Lineage2MBot.dll!" -ForegroundColor Red

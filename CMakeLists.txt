@@ -23,6 +23,7 @@ set(CORE_SOURCES
     src/core/image_buffer.c
     src/core/logger.c
     src/core/cbt_manager.c
+    src/core/window_profile_manager.c
     src/vision/color_mask.c
     src/vision/morphology.c
     src/vision/contour.c
@@ -45,13 +46,13 @@ set(GUI_SOURCES
 add_library(Lineage2MBot SHARED ${CORE_SOURCES})
 target_compile_definitions(Lineage2MBot PRIVATE L2M_BUILD_DLL)
 if(WIN32)
-    target_link_libraries(Lineage2MBot gdi32 user32)
+    target_link_libraries(Lineage2MBot gdi32 user32 psapi)
 endif()
 
 # 2. 编译纯 C 独立桌面应用程序 Lineage2MBot_GUI.exe
 add_executable(Lineage2MBot_GUI WIN32 ${CORE_SOURCES} ${GUI_SOURCES})
 target_compile_definitions(Lineage2MBot_GUI PRIVATE L2M_USE_STATIC)
 if(WIN32)
-    target_link_libraries(Lineage2MBot_GUI gdi32 user32 comctl32 comdlg32)
+    target_link_libraries(Lineage2MBot_GUI gdi32 user32 comctl32 comdlg32 psapi)
 endif()
 
