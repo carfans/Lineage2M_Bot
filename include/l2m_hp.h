@@ -38,6 +38,19 @@ bool l2m_calculate_hp_from_fullscreen(
     L2MHpResult* out_result
 );
 
+/**
+ * @brief 从截取的血条 ROI 区域 (直接传入 BGR 格式，零转换开销) 中计算当前血量
+ * @param crop_bgr 血条切片图像 (BGR 格式)
+ * @param config 血条配置
+ * @param out_result 输出计算结果
+ * @return 是否成功完成计算
+ */
+bool l2m_calculate_hp_bgr(
+    const L2MImageBuffer* crop_bgr,
+    const L2MHpConfig* config,
+    L2MHpResult* out_result
+);
+
 #ifdef __cplusplus
 }
 #endif

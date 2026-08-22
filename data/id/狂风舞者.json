@@ -1,15 +1,15 @@
 {
-  "HEALTH_RECOVER": 80,
-  "AUTO_DISMISS_POPUP": true,
   "REGION": "CN",
+  "AUTO_DISMISS_POPUP": false,
+  "HEALTH_RECOVER": 80,
   "PEACE_MODE": false,
   "PVP_EVADE": false,
   "PVP_ANSWER": false,
-  "LOW_HP_DODGE": true,
+  "LOW_HP_DODGE": false,
   "HEALTH_BACK": [
-    20,
     30,
-    40
+    40,
+    50
   ],
   "BUY_LOOT_TOWN": false,
   "BUY_LOOT_RIP": false,

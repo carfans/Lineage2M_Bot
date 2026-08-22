@@ -152,4 +152,73 @@ bool l2m_capture_window(HWND hwnd, bool client_only, L2MImageBuffer* out_img) {
     return capture_success;
 }
 
+bool l2m_capture_window_roi(HWND hwnd, const L2MRect* roi, L2MImageBuffer* out_img) {
+    if (!hwnd || !roi || !out_img || roi->width <= 0 || roi->height <= 0) return false;
+    if (!IsWindow(hwnd)) return false;
+
+    POINT ptScreen = {roi->x, roi->y};
+    ClientToScreen(hwnd, &ptScreen);
+
+    int32_t w = roi->width;
+    int32_t h = roi->height;
+
+    /* 准备输出缓冲区 */
+    if (out_img->width != w || out_img->height != h || out_img->channels != 3 || !out_img->data) {
+        if (out_img->is_owner && out_img->data) free(out_img->data);
+        out_img->width = w;
+        out_img->height = h;
+        out_img->channels = 3;
+        out_img->format = L2M_FMT_BGR888;
+        out_img->stride = (w * 3 + 3) & ~3;
+        out_img->data = (uint8_t*)malloc((size_t)out_img->stride * h);
+        out_img->is_owner = true;
+        if (!out_img->data) return false;
+    }
+
+    HDC hdc_screen = GetDC(NULL);
+    if (!hdc_screen) return false;
+
+    HDC hdc_mem = CreateCompatibleDC(hdc_screen);
+    if (!hdc_mem) {
+        ReleaseDC(NULL, hdc_screen);
+        return false;
+    }
+
+    BITMAPINFO bmi;
+    memset(&bmi, 0, sizeof(bmi));
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = w;
+    bmi.bmiHeader.biHeight = -h; /* Top-down */
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 24;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    void* p_bits = NULL;
+    HBITMAP hbm = CreateDIBSection(hdc_mem, &bmi, DIB_RGB_COLORS, &p_bits, NULL, 0);
+    if (!hbm || !p_bits) {
+        DeleteDC(hdc_mem);
+        ReleaseDC(NULL, hdc_screen);
+        return false;
+    }
+
+    HBITMAP old_bm = (HBITMAP)SelectObject(hdc_mem, hbm);
+    BOOL blt_ok = BitBlt(hdc_mem, 0, 0, w, h, hdc_screen, ptScreen.x, ptScreen.y, SRCCOPY | 0x40000000);
+
+    int32_t stride = (w * 3 + 3) & ~3;
+    if (blt_ok) {
+        for (int32_t y = 0; y < h; y++) {
+            const uint8_t* src_row = (const uint8_t*)p_bits + y * stride;
+            uint8_t* dst_row = out_img->data + y * out_img->stride;
+            memcpy(dst_row, src_row, w * 3);
+        }
+    }
+
+    SelectObject(hdc_mem, old_bm);
+    DeleteObject(hbm);
+    DeleteDC(hdc_mem);
+    ReleaseDC(NULL, hdc_screen);
+
+    return (blt_ok != FALSE);
+}
+
 #endif

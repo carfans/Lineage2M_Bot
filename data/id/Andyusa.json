@@ -1,13 +1,15 @@
 {
-  "REGION": "EN",
+  "HEALTH_RECOVER": 80,
+  "AUTO_DISMISS_POPUP": false,
+  "REGION": "CN",
   "PEACE_MODE": false,
   "PVP_EVADE": false,
   "PVP_ANSWER": false,
   "LOW_HP_DODGE": true,
   "HEALTH_BACK": [
-    20,
     30,
-    40
+    40,
+    50
   ],
   "BUY_LOOT_TOWN": false,
   "BUY_LOOT_RIP": false,

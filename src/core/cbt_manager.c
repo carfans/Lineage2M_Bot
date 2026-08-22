@@ -438,6 +438,21 @@ static void init_default_map_zone_config(L2MMapZoneConfig *cfg) {
   cfg->detect_player_indicator = true;
 }
 
+static void init_default_hp_config(L2MHpConfig *cfg) {
+  if (!cfg)
+    return;
+  memset(cfg, 0, sizeof(L2MHpConfig));
+  cfg->offset_x = 64;
+  cfg->offset_y = 21;
+  cfg->width = 103;
+  cfg->height = 2;
+  cfg->target_color_1 = (L2MRGB){230, 48, 48};
+  cfg->tolerance_1 = (L2MRGB){25, 25, 25};
+  cfg->target_color_2 = (L2MRGB){255, 157, 57};
+  cfg->tolerance_2 = (L2MRGB){10, 10, 10};
+  cfg->mean_threshold = 0.0f;
+}
+
 bool l2m_cbt_load(const char *region, L2MCbtConfig *cfg) {
   if (!region || !cfg)
     return false;
@@ -446,9 +461,10 @@ bool l2m_cbt_load(const char *region, L2MCbtConfig *cfg) {
   strncpy(cfg->region, region, sizeof(cfg->region) - 1);
   get_cbt_file_path(region, cfg->file_path, sizeof(cfg->file_path));
 
-  /* 初始化弹窗全特征默认参数与地图区域默认参数 (960x540 标准参考系) */
+  /* 初始化弹窗全特征默认参数、地图区域默认参数与血条默认参数 (960x540 标准参考系) */
   init_default_popup_params(&cfg->popup_cfg);
   init_default_map_zone_config(&cfg->map_zone_cfg);
+  init_default_hp_config(&cfg->hp_bar_cfg);
   cfg->map_box_roi =
       (L2MRect){cfg->map_zone_cfg.x, cfg->map_zone_cfg.y,
                 cfg->map_zone_cfg.width, cfg->map_zone_cfg.height};
@@ -599,6 +615,25 @@ bool l2m_cbt_load(const char *region, L2MCbtConfig *cfg) {
     }
   }
 
+  /* 检查并解析 "hp_bar_config" 血条参数节点 */
+  char *hp_tag = strstr(content, "\"hp_bar_config\"");
+  if (hp_tag) {
+    char *hp_brace_start = strchr(hp_tag, '{');
+    if (hp_brace_start) {
+      char *hp_brace_end = find_matching_brace(hp_brace_start);
+      if (hp_brace_end) {
+        parse_json_int(hp_brace_start, "offset_x", &cfg->hp_bar_cfg.offset_x);
+        parse_json_int(hp_brace_start, "offset_y", &cfg->hp_bar_cfg.offset_y);
+        parse_json_int(hp_brace_start, "width", &cfg->hp_bar_cfg.width);
+        parse_json_int(hp_brace_start, "height", &cfg->hp_bar_cfg.height);
+        parse_json_rgb_array(hp_brace_start, "target_color_1", &cfg->hp_bar_cfg.target_color_1);
+        parse_json_rgb_array(hp_brace_start, "tolerance_1", &cfg->hp_bar_cfg.tolerance_1);
+        parse_json_rgb_array(hp_brace_start, "target_color_2", &cfg->hp_bar_cfg.target_color_2);
+        parse_json_rgb_array(hp_brace_start, "tolerance_2", &cfg->hp_bar_cfg.tolerance_2);
+      }
+    }
+  }
+
   /* 解析普通特征采样点 */
   char *p = content;
   while (*p && cfg->count < MAX_CBT_POINTS) {
@@ -630,6 +665,7 @@ bool l2m_cbt_load(const char *region, L2MCbtConfig *cfg) {
 
     if (strcmp(key_name, "popup_scan_config") == 0 ||
         strcmp(key_name, "map_box_config") == 0 ||
+        strcmp(key_name, "hp_bar_config") == 0 ||
         strcmp(key_name, "top_left") == 0 || strcmp(key_name, "center") == 0 ||
         strcmp(key_name, "fullscreen") == 0) {
       p = obj_end + 1;
@@ -828,6 +864,28 @@ bool l2m_cbt_save(const L2MCbtConfig *cfg) {
             cfg->map_zone_cfg.max_bg_brightness);
     fprintf(fp, "    \"detect_player_indicator\": %s\n",
             cfg->map_zone_cfg.detect_player_indicator ? "true" : "false");
+    if (cfg->count > 0 || cfg->hp_bar_cfg.width > 0) {
+      fprintf(fp, "  },\n");
+    } else {
+      fprintf(fp, "  }\n");
+    }
+  }
+
+  /* 3. 写入 hp_bar_config 血条参数节点 */
+  if (cfg->hp_bar_cfg.width > 0 && cfg->hp_bar_cfg.height > 0) {
+    fprintf(fp, "  \"hp_bar_config\": {\n");
+    fprintf(fp, "    \"offset_x\": %d,\n", cfg->hp_bar_cfg.offset_x);
+    fprintf(fp, "    \"offset_y\": %d,\n", cfg->hp_bar_cfg.offset_y);
+    fprintf(fp, "    \"width\": %d,\n", cfg->hp_bar_cfg.width);
+    fprintf(fp, "    \"height\": %d,\n", cfg->hp_bar_cfg.height);
+    fprintf(fp, "    \"target_color_1\": [\n      %d,\n      %d,\n      %d\n    ],\n",
+            cfg->hp_bar_cfg.target_color_1.r, cfg->hp_bar_cfg.target_color_1.g, cfg->hp_bar_cfg.target_color_1.b);
+    fprintf(fp, "    \"tolerance_1\": [\n      %d,\n      %d,\n      %d\n    ],\n",
+            cfg->hp_bar_cfg.tolerance_1.r, cfg->hp_bar_cfg.tolerance_1.g, cfg->hp_bar_cfg.tolerance_1.b);
+    fprintf(fp, "    \"target_color_2\": [\n      %d,\n      %d,\n      %d\n    ],\n",
+            cfg->hp_bar_cfg.target_color_2.r, cfg->hp_bar_cfg.target_color_2.g, cfg->hp_bar_cfg.target_color_2.b);
+    fprintf(fp, "    \"tolerance_2\": [\n      %d,\n      %d,\n      %d\n    ]\n",
+            cfg->hp_bar_cfg.tolerance_2.r, cfg->hp_bar_cfg.tolerance_2.g, cfg->hp_bar_cfg.tolerance_2.b);
     if (cfg->count > 0) {
       fprintf(fp, "  },\n");
     } else {
@@ -835,7 +893,7 @@ bool l2m_cbt_save(const L2MCbtConfig *cfg) {
     }
   }
 
-  /* 3. 写入常规 CBT 特征采样点 */
+  /* 4. 写入常规 CBT 特征采样点 */
   for (int i = 0; i < cfg->count; i++) {
     const L2MCbtPoint *pt = &cfg->points[i];
     fprintf(fp, "  \"%s\": {\n", pt->key);
@@ -862,6 +920,20 @@ bool l2m_cbt_save(const L2MCbtConfig *cfg) {
   }
   fprintf(fp, "}\n");
   fclose(fp);
+  return true;
+}
+
+bool l2m_cbt_get_hp_config(const L2MCbtConfig *cfg, L2MHpConfig *out_cfg) {
+  if (!cfg || !out_cfg)
+    return false;
+  *out_cfg = cfg->hp_bar_cfg;
+  return true;
+}
+
+bool l2m_cbt_set_hp_config(L2MCbtConfig *cfg, const L2MHpConfig *hp_cfg) {
+  if (!cfg || !hp_cfg)
+    return false;
+  cfg->hp_bar_cfg = *hp_cfg;
   return true;
 }
 

@@ -53,6 +53,15 @@ bool l2m_send_key_press(HWND hwnd, WORD vk_code);
 bool l2m_capture_window(HWND hwnd, bool client_only, L2MImageBuffer* out_img);
 
 /**
+ * @brief 对目标窗口指定局部矩形区域 (ROI) 进行超高频微秒级极速截屏
+ * @param hwnd 目标窗口句柄
+ * @param roi 局部截屏矩形区域 (以客户区为原点)
+ * @param out_img 输出图像缓冲区 (BGR 格式)
+ * @return 是否截屏成功
+ */
+bool l2m_capture_window_roi(HWND hwnd, const L2MRect* roi, L2MImageBuffer* out_img);
+
+/**
  * @brief 在目标窗口下发物理光标移动与硬件级鼠标点击 (DirectInput / RawInput 兼容)
  * @param hwnd 目标窗口句柄
  * @param client_x 客户区 X 坐标

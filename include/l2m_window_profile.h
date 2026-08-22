@@ -56,6 +56,9 @@ typedef struct {
     char match_title_keyword[128];  /* 规则为 TITLE_KEYWORD 时的标题关键字 */
 
     bool auto_detect_region;        /* 当未明确指定或匹配时，是否根据画面特征自动检测语言地区 */
+    bool auto_dismiss_popup;        /* 是否自动检测并关闭弹窗 (默认 true) */
+    int32_t low_hp_threshold;       /* 低血量回城逃生阈值百分比 (默认 30%, 范围 5~90) */
+    int32_t recover_hp_threshold;   /* 恢复出战血量阈值百分比 (默认 80%, 范围 20~100) */
     bool enabled;                   /* 是否启用该配置 */
     char notes[128];                /* 备注信息 */
 } L2MWindowProfile;
@@ -79,42 +82,18 @@ bool l2m_enum_game_windows(
     int32_t* out_count
 );
 
-/**
- * @brief 从 JSON 文件加载窗口与角色配置文件 (例如 data/window_profiles.json)
- * @param file_path 配置文件路径 (为 NULL 时采用默认路径)
- * @param out_list 输出窗口配置列表
- * @return 是否加载成功
- */
 bool l2m_window_profiles_load(
     const char* file_path,
     L2MWindowProfileList* out_list
 );
 
-/**
- * @brief 保存窗口与角色配置列表至 JSON 文件
- * @param file_path 配置文件路径
- * @param list 待保存的配置列表
- * @return 是否保存成功
- */
 bool l2m_window_profiles_save(
     const char* file_path,
     const L2MWindowProfileList* list
 );
 
-/**
- * @brief 初始化一套默认的窗口与角色配置文件
- * @param out_list 输出默认配置列表
- */
 void l2m_window_profiles_init_default(L2MWindowProfileList* out_list);
 
-/**
- * @brief 为指定的窗口实例智能匹配最匹配的角色与语言配置
- * @param list 窗口配置列表
- * @param win_inst 目标窗口实例
- * @param window_index 当前窗口在枚举列表中的序号
- * @param out_profile 输出匹配到的配置项
- * @return 是否成功匹配
- */
 bool l2m_window_profile_match(
     const L2MWindowProfileList* list,
     const L2MWindowInstance* win_inst,
@@ -129,14 +108,39 @@ typedef enum {
     L2M_ALIGN_VERTICAL = 2      /* 纵向垂直平铺 */
 } L2MWindowAlignMode;
 
-/**
- * @brief 按窗口标题/标识快速保存或更新其绑定的角色名称与语言地区配置
- * @param window_title 窗口标题或唯一名称
- * @param character_name 角色名称 (如 "Andyusa", "狂风舞者")
- * @param region 语言地区 ("CN", "EN", "JP", "RU")
- * @param notes 备注说明
- * @return 是否保存成功
- */
+#ifndef MAX_MONITORS
+#define MAX_MONITORS 16
+#endif
+
+/* 显示器信息描述结构体 */
+typedef struct {
+    int32_t monitor_index;       /* 0-indexed 显示器序号 (0, 1, 2...) */
+    char name[64];              /* 显示器设备名称 (如 "\\.\DISPLAY1", "DISPLAY1") */
+    char desc[128];             /* 友好的中文描述 (如 "🖥️ 显示器 1 [主屏幕] (1920x1080)") */
+    bool is_primary;            /* 是否为主显示器 */
+    int32_t x;                  /* 虚拟桌面绝对屏幕 X 原点 (支持负坐标) */
+    int32_t y;                  /* 虚拟桌面绝对屏幕 Y 原点 */
+    int32_t width;              /* 分辨率宽度 */
+    int32_t height;             /* 分辨率高度 */
+    int32_t work_x;             /* 可用工作区左上角 X (已扣除 Windows 任务栏) */
+    int32_t work_y;             /* 可用工作区左上角 Y */
+    int32_t work_width;         /* 可用工作区宽度 */
+    int32_t work_height;        /* 可用工作区高度 */
+} L2MMonitorInfo;
+
+/* 系统多显示器列表 */
+typedef struct {
+    L2MMonitorInfo monitors[MAX_MONITORS];
+    int32_t count;               /* 实际检测到的显示器数量 */
+    int32_t primary_index;       /* 主显示器在列表中的索引 */
+} L2MMonitorList;
+
+/* 枚举系统当前连接的所有物理显示器 */
+bool l2m_enum_monitors(L2MMonitorList* out_list);
+
+/* 根据索引获取特定显示器信息 */
+bool l2m_get_monitor_by_index(int32_t monitor_index, L2MMonitorInfo* out_info);
+
 bool l2m_save_window_profile_by_title(
     const char* window_title,
     const char* character_name,
@@ -144,25 +148,21 @@ bool l2m_save_window_profile_by_title(
     const char* notes
 );
 
-/**
- * @brief 根据窗口标题查询其专属绑定的角色与语言配置
- * @param window_title 窗口标题
- * @param out_prof 输出匹配到的配置项
- * @return 是否找到匹配配置
- */
 bool l2m_load_window_profile_by_title(
     const char* window_title,
     L2MWindowProfile* out_prof
 );
 
-/**
- * @brief 对系统中运行的多开游戏窗口执行一键自动排版与四开对齐
- * @param mode 对齐模式 (如 L2M_ALIGN_GRID_2X2 四开网格)
- * @param target_client_w 目标客户区宽度 (默认为 960)
- * @param target_client_h 目标客户区高度 (默认为 540)
- * @param out_aligned_count 输出实际完成对齐的窗口数量
- * @return 是否执行成功
- */
+/* 支持指定目标物理显示器的多开窗口智能对齐排列 */
+bool l2m_align_game_windows_ex(
+    L2MWindowAlignMode mode,
+    int32_t target_client_w,
+    int32_t target_client_h,
+    int32_t monitor_index,
+    int32_t* out_aligned_count
+);
+
+/* 保持向后兼容的标准接口 (默认在主屏幕或当前屏幕对齐) */
 bool l2m_align_game_windows(
     L2MWindowAlignMode mode,
     int32_t target_client_w,
@@ -175,6 +175,9 @@ typedef struct {
     char id_name[64];           /* 角色/窗口标识 (例如 "Andyusa", "狂风舞者") */
     char file_path[256];        /* 文件实际路径 */
     char region[16];            /* 语言地区 ("EN", "CN", "JP", "RU") */
+    bool auto_dismiss_popup;    /* 是否自动检测并关闭弹窗 (默认 true) */
+    int32_t low_hp_threshold;   /* 低血量回城阈值百分比 (默认 30) */
+    int32_t recover_hp_threshold; /* 恢复出战血量阈值百分比 (默认 80) */
     bool peace_mode;            /* 和平模式 */
     bool pvp_evade;             /* PVP 规避 */
     bool pvp_answer;            /* PVP 反击 */
@@ -189,59 +192,49 @@ typedef struct {
     bool autohunt_before_tp;    /* 瞬移前自动挂机 */
 } L2MIdConfig;
 
-/**
- * @brief 从 data/id/<id_name>.json 读取指定角色/窗口的配置文件
- * @param id_name 角色或窗口名称 (例如 "Andyusa")
- * @param out_cfg 输出配置信息
- * @return 是否读取成功
- */
 bool l2m_id_profile_load(
     const char* id_name,
     L2MIdConfig* out_cfg
 );
 
-/**
- * @brief 保存或更新角色/窗口配置至 data/id/<id_name>.json
- * @param id_name 角色或窗口名称
- * @param in_cfg 待保存的配置信息
- * @return 是否保存成功
- */
 bool l2m_id_profile_save(
     const char* id_name,
     const L2MIdConfig* in_cfg
 );
 
-/**
- * @brief 快速为 data/id/<id_name>.json 设置或更新绑定的语言地区 (如 "CN", "EN", "JP", "RU")
- * @param id_name 角色或窗口名称
- * @param region 语言地区代码
- * @return 是否保存成功
- */
 bool l2m_id_profile_set_region(
     const char* id_name,
     const char* region
 );
 
-/**
- * @brief 获取指定角色/窗口配置文件中绑定的语言地区代码
- * @param id_name 角色或窗口名称
- * @param out_region 输出语言地区代码
- * @param max_len 缓冲区最大长度
- * @return 是否获取成功
- */
 bool l2m_id_profile_get_region(
     const char* id_name,
     char* out_region,
     size_t max_len
 );
 
-/**
- * @brief 枚举 data/id/ 目录下所有的角色/窗口配置文件列表
- * @param out_ids 输出 ID 名称数组
- * @param max_count 数组最大容量
- * @param out_count 输出实际检测到的配置文件数量
- * @return 是否成功完成枚举
- */
+bool l2m_id_profile_set_auto_dismiss_popup(
+    const char* id_name,
+    bool enabled
+);
+
+bool l2m_id_profile_get_auto_dismiss_popup(
+    const char* id_name,
+    bool* out_enabled
+);
+
+bool l2m_id_profile_set_hp_thresholds(
+    const char* id_name,
+    int32_t low_hp,
+    int32_t recover_hp
+);
+
+bool l2m_id_profile_get_hp_thresholds(
+    const char* id_name,
+    int32_t* out_low_hp,
+    int32_t* out_recover_hp
+);
+
 bool l2m_enum_id_profiles(
     char out_ids[][64],
     int32_t max_count,

@@ -108,14 +108,33 @@ static void test_cbt_manager(void) {
     TEST_ASSERT(set_map_ok && cfg.map_zone_cfg.x == 12 && cfg.map_box_roi.x == 12,
                 "l2m_cbt_set_map_zone_config synchronized map_zone_cfg and map_box_roi");
 
-    /* 验证没有将 center, fullscreen 和 map_box_config 误解析为普通 CBT 点位 */
-    L2MCbtPoint pt_center, pt_fullscreen, pt_map;
+    /* 验证血条 hp_bar_config 完整参数解析与存取 */
+    L2MHpConfig hp_bar_cfg;
+    bool has_hp_bar = l2m_cbt_get_hp_config(&cfg, &hp_bar_cfg);
+    TEST_ASSERT(has_hp_bar && hp_bar_cfg.width == 103 && hp_bar_cfg.height == 2,
+                "hp_bar_config parsed successfully (w=103, h=2)");
+    TEST_ASSERT(hp_bar_cfg.offset_x == 64 && hp_bar_cfg.offset_y == 21,
+                "hp_bar_config offset is (64, 21)");
+    TEST_ASSERT(hp_bar_cfg.target_color_1.r == 230 && hp_bar_cfg.target_color_1.g == 48,
+                "hp_bar_config target_color_1 is RGB(230, 48, 48)");
+
+    /* 验证修改与设置血条配置 */
+    hp_bar_cfg.offset_x = 65;
+    hp_bar_cfg.target_color_1 = (L2MRGB){220, 50, 50};
+    bool set_hp_ok = l2m_cbt_set_hp_config(&cfg, &hp_bar_cfg);
+    TEST_ASSERT(set_hp_ok && cfg.hp_bar_cfg.offset_x == 65 && cfg.hp_bar_cfg.target_color_1.r == 220,
+                "l2m_cbt_set_hp_config updated hp_bar_cfg correctly");
+
+    /* 验证没有将 center, fullscreen, map_box_config 和 hp_bar_config 误解析为普通 CBT 点位 */
+    L2MCbtPoint pt_center, pt_fullscreen, pt_map, pt_hp;
     bool has_bad_center = l2m_cbt_get_point(&cfg, "center", &pt_center);
     bool has_bad_fullscreen = l2m_cbt_get_point(&cfg, "fullscreen", &pt_fullscreen);
     bool has_bad_map = l2m_cbt_get_point(&cfg, "map_box_config", &pt_map);
+    bool has_bad_hp = l2m_cbt_get_point(&cfg, "hp_bar_config", &pt_hp);
     TEST_ASSERT(!has_bad_center, "Key 'center' from popup config must NOT be parsed as CBT point");
     TEST_ASSERT(!has_bad_fullscreen, "Key 'fullscreen' from popup config must NOT be parsed as CBT point");
     TEST_ASSERT(!has_bad_map, "Key 'map_box_config' must NOT be parsed as CBT point");
+    TEST_ASSERT(!has_bad_hp, "Key 'hp_bar_config' must NOT be parsed as CBT point");
 
     /* 验证具体点位解析 */
     L2MCbtPoint pt_slot1;
@@ -245,6 +264,65 @@ static void test_hp_calculation(void) {
     TEST_ASSERT(res.hp_percent == 60, "HP percentage is 60%");
     TEST_ASSERT(res.sample_hp_end == 59, "sample_hp_end is 59");
 
+    /* 4.2 测试极速零拷贝 BGR 血量计算 (l2m_calculate_hp_bgr) */
+    L2MImageBuffer* hp_bar_bgr = l2m_image_create(100, 2, L2M_FMT_BGR888);
+    for (int y = 0; y < 2; y++) {
+        uint8_t* r = hp_bar_bgr->data + y * hp_bar_bgr->stride;
+        for (int x = 0; x < 75; x++) {
+            /* BGR: B=2, G=69, R=168 */
+            r[x * 3 + 0] = 2; r[x * 3 + 1] = 69; r[x * 3 + 2] = 168;
+        }
+        for (int x = 75; x < 100; x++) {
+            r[x * 3 + 0] = 10; r[x * 3 + 1] = 10; r[x * 3 + 2] = 10;
+        }
+    }
+
+    L2MHpResult res_bgr;
+    bool ok_bgr = l2m_calculate_hp_bgr(hp_bar_bgr, &cfg, &res_bgr);
+    TEST_ASSERT(ok_bgr && res_bgr.is_valid, "l2m_calculate_hp_bgr succeeded (zero-copy direct BGR)");
+    TEST_ASSERT(res_bgr.hp_percent == 75, "HP percentage via BGR is 75%");
+    TEST_ASSERT(res_bgr.sample_hp_end == 74, "sample_hp_end via BGR is 74");
+
+    /* 4.3 测试配置宽度为 97px 时的纯配置驱动计算 (满血 97/97 px 对应 100%) */
+    L2MImageBuffer* custom_hp_bar = l2m_image_create(97, 2, L2M_FMT_RGB888);
+    for (int y = 0; y < 2; y++) {
+        uint8_t* r = custom_hp_bar->data + y * custom_hp_bar->stride;
+        for (int x = 0; x < 97; x++) {
+            r[x * 3 + 0] = 230; r[x * 3 + 1] = 48; r[x * 3 + 2] = 48;
+        }
+    }
+    L2MHpConfig cfg_cn;
+    memset(&cfg_cn, 0, sizeof(cfg_cn));
+    cfg_cn.width = 97;
+    cfg_cn.height = 2;
+    cfg_cn.target_color_1 = (L2MRGB){230, 48, 48};
+    cfg_cn.tolerance_1 = (L2MRGB){25, 25, 25};
+
+    L2MHpResult res_custom;
+    bool ok_custom = l2m_calculate_hp(custom_hp_bar, &cfg_cn, &res_custom);
+    TEST_ASSERT(ok_custom && res_custom.is_valid, "Pure config-driven HP calculation succeeded");
+    TEST_ASSERT(res_custom.hp_percent == 100, "Config width 97px with 97 filled pixels correctly outputs 100%");
+
+    /* 4.4 测试配置宽度为 100px 时填充 90px 严格输出 90% */
+    L2MImageBuffer* bar_100 = l2m_image_create(100, 2, L2M_FMT_RGB888);
+    for (int y = 0; y < 2; y++) {
+        uint8_t* r = bar_100->data + y * bar_100->stride;
+        for (int x = 0; x < 90; x++) {
+            r[x * 3 + 0] = 230; r[x * 3 + 1] = 48; r[x * 3 + 2] = 48;
+        }
+        for (int x = 90; x < 100; x++) {
+            r[x * 3 + 0] = 10; r[x * 3 + 1] = 10; r[x * 3 + 2] = 10;
+        }
+    }
+    cfg_cn.width = 100;
+    L2MHpResult res_drop;
+    bool ok_drop = l2m_calculate_hp(bar_100, &cfg_cn, &res_drop);
+    TEST_ASSERT(ok_drop && res_drop.is_valid, "HP drop calculation succeeded");
+    TEST_ASSERT(res_drop.hp_percent == 90, "Config width 100px with 90px filled correctly outputs 90%");
+
+    l2m_image_free(bar_100);
+    l2m_image_free(custom_hp_bar);
+    l2m_image_free(hp_bar_bgr);
     l2m_image_free(hp_bar);
 }
 
@@ -557,9 +635,9 @@ static void test_window_profile_manager(void) {
     TEST_ASSERT(load_ok, "l2m_window_profiles_load successfully loaded window_profiles.json");
     TEST_ASSERT(list.count >= 4, "Loaded at least 4 window profiles");
 
-    /* 验证第 1 个配置 (EN / Andyusa) */
+    /* 验证第 1 个配置 (CN / Andyusa) */
     TEST_ASSERT(strcmp(list.profiles[0].character_name, "Andyusa") == 0, "Profile 1 character_name is 'Andyusa'");
-    TEST_ASSERT(strcmp(list.profiles[0].region, "EN") == 0, "Profile 1 region is 'EN'");
+    TEST_ASSERT(strcmp(list.profiles[0].region, "CN") == 0, "Profile 1 region is 'CN'");
     TEST_ASSERT(list.profiles[0].match_rule == L2M_WIN_MATCH_INDEX && list.profiles[0].match_window_index == 0, "Profile 1 matches Window Index 0");
 
     /* 验证第 2 个配置 (CN / 中文角色名: 狂风舞者) */
@@ -598,7 +676,7 @@ static void test_window_profile_manager(void) {
     bool match_en_ok = l2m_window_profile_match(&list, &win_en, 0, &matched_en);
     TEST_ASSERT(match_en_ok, "l2m_window_profile_match successfully matched 1st window instance");
     TEST_ASSERT(strcmp(matched_en.character_name, "Andyusa") == 0, "Matched character name is 'Andyusa'");
-    TEST_ASSERT(strcmp(matched_en.region, "EN") == 0, "Matched region is 'EN'");
+    TEST_ASSERT(strcmp(matched_en.region, "CN") == 0, "Matched region is 'CN'");
 
     /* 7.3 测试配置保存与回读 */
     bool save_ok = l2m_window_profiles_save("build/test_profiles.json", &list);
@@ -620,17 +698,32 @@ static void test_window_profile_manager(void) {
     TEST_ASSERT(strcmp(loaded_by_title.character_name, "天下无双") == 0, "Saved character name '天下无双' verified");
     TEST_ASSERT(strcmp(loaded_by_title.region, "CN") == 0, "Saved region 'CN' verified");
 
-    /* 7.5 测试多窗口网格排版参数 */
+    /* 7.5 测试多物理显示器枚举与指定显示器网格排版 */
+    L2MMonitorList mon_list;
+    bool enum_mon_ok = l2m_enum_monitors(&mon_list);
+    TEST_ASSERT(enum_mon_ok && mon_list.count >= 1, "l2m_enum_monitors detected at least 1 physical monitor");
+    TEST_ASSERT(mon_list.primary_index >= 0 && mon_list.primary_index < mon_list.count, "Primary monitor index is valid");
+    TEST_ASSERT(mon_list.monitors[mon_list.primary_index].width > 0 && mon_list.monitors[mon_list.primary_index].height > 0,
+                "Primary monitor resolution is positive");
+
+    L2MMonitorInfo mon_info;
+    bool get_mon_ok = l2m_get_monitor_by_index(0, &mon_info);
+    TEST_ASSERT(get_mon_ok && mon_info.width > 0, "l2m_get_monitor_by_index(0) succeeded");
+
     int32_t aligned_count = 0;
     /* 无真实游戏窗口时安全返回 false */
     l2m_align_game_windows(L2M_ALIGN_GRID_2X2, 960, 540, &aligned_count);
     TEST_ASSERT(aligned_count >= 0, "l2m_align_game_windows executed safely");
 
+    int32_t aligned_count_ex = 0;
+    l2m_align_game_windows_ex(L2M_ALIGN_GRID_2X2, 960, 540, 0, &aligned_count_ex);
+    TEST_ASSERT(aligned_count_ex >= 0, "l2m_align_game_windows_ex executed safely on monitor 0");
+
     /* 7.6 测试 data/id/<name>.json 独立角色配置文件读取与语言绑定功能 */
     L2MIdConfig andy_cfg;
     bool id_load_ok = l2m_id_profile_load("Andyusa", &andy_cfg);
     TEST_ASSERT(id_load_ok, "l2m_id_profile_load('Andyusa') loaded data/id/Andyusa.json successfully");
-    TEST_ASSERT(strcmp(andy_cfg.region, "EN") == 0, "Andyusa.json REGION is 'EN'");
+    TEST_ASSERT(strcmp(andy_cfg.region, "CN") == 0, "Andyusa.json REGION is 'CN'");
     TEST_ASSERT(andy_cfg.low_hp_dodge == true, "Andyusa.json LOW_HP_DODGE is true");
     TEST_ASSERT(andy_cfg.peace_mode == false, "Andyusa.json PEACE_MODE is false (temporarily disabled)");
     TEST_ASSERT(andy_cfg.pvp_evade == false, "Andyusa.json PVP_EVADE is false (temporarily disabled)");
@@ -639,7 +732,7 @@ static void test_window_profile_manager(void) {
     /* 测试读取语言地区 */
     char reg_buf[16] = {0};
     bool get_reg_ok = l2m_id_profile_get_region("Andyusa", reg_buf, sizeof(reg_buf));
-    TEST_ASSERT(get_reg_ok && strcmp(reg_buf, "EN") == 0, "l2m_id_profile_get_region returned 'EN'");
+    TEST_ASSERT(get_reg_ok && strcmp(reg_buf, "CN") == 0, "l2m_id_profile_get_region returned 'CN'");
 
     /* 测试新建/保存中文角色独立配置文件 */
     bool id_set_reg_ok = l2m_id_profile_set_region("ChineseHero", "CN");
@@ -654,6 +747,62 @@ static void test_window_profile_manager(void) {
     int32_t id_count = 0;
     bool enum_id_ok = l2m_enum_id_profiles(id_list, 16, &id_count);
     TEST_ASSERT(enum_id_ok && id_count >= 1, "l2m_enum_id_profiles found at least 1 profile in data/id/");
+
+    /* 7.7 测试自动关闭弹窗 (auto_dismiss_popup) 配置读写与持久化 */
+    bool get_pop_init = false;
+    bool get_pop_ok = l2m_id_profile_get_auto_dismiss_popup("Andyusa", &get_pop_init);
+    TEST_ASSERT(get_pop_ok, "l2m_id_profile_get_auto_dismiss_popup('Andyusa') succeeded");
+
+    /* 切换为 false 并持久化 */
+    bool set_pop_false_ok = l2m_id_profile_set_auto_dismiss_popup("Andyusa", false);
+    TEST_ASSERT(set_pop_false_ok, "l2m_id_profile_set_auto_dismiss_popup('Andyusa', false) succeeded");
+
+    bool get_pop_val = true;
+    l2m_id_profile_get_auto_dismiss_popup("Andyusa", &get_pop_val);
+    TEST_ASSERT(get_pop_val == false, "Andyusa auto_dismiss_popup verified as false");
+
+    L2MIdConfig reload_andy_pop;
+    l2m_id_profile_load("Andyusa", &reload_andy_pop);
+    TEST_ASSERT(reload_andy_pop.auto_dismiss_popup == false, "Reloaded Andyusa.json AUTO_DISMISS_POPUP is false");
+
+    /* 7.8 测试中文角色独立配置文件 (UTF-8 路径) 的读写与弹窗开关持久化 */
+    bool set_cn_pop_ok = l2m_id_profile_set_auto_dismiss_popup("狂风舞者", false);
+    TEST_ASSERT(set_cn_pop_ok, "l2m_id_profile_set_auto_dismiss_popup('狂风舞者', false) succeeded");
+
+    bool get_cn_val = true;
+    l2m_id_profile_get_auto_dismiss_popup("狂风舞者", &get_cn_val);
+    TEST_ASSERT(get_cn_val == false, "狂风舞者 auto_dismiss_popup is false");
+
+    L2MIdConfig reload_cn_pop;
+    l2m_id_profile_load("狂风舞者", &reload_cn_pop);
+    TEST_ASSERT(reload_cn_pop.auto_dismiss_popup == false, "Reloaded 狂风舞者.json AUTO_DISMISS_POPUP is false");
+
+    /* 7.9 测试低血量阈值与恢复出战阈值读写与持久化 */
+    int32_t low_hp_val = 0, rec_hp_val = 0;
+    bool get_hp_ok = l2m_id_profile_get_hp_thresholds("Andyusa", &low_hp_val, &rec_hp_val);
+    TEST_ASSERT(get_hp_ok && low_hp_val > 0 && rec_hp_val > 0, "l2m_id_profile_get_hp_thresholds('Andyusa') succeeded");
+
+    /* 设置自定义阈值 (如 25% 回城, 85% 恢复出战) */
+    bool set_hp_ok = l2m_id_profile_set_hp_thresholds("Andyusa", 25, 85);
+    TEST_ASSERT(set_hp_ok, "l2m_id_profile_set_hp_thresholds('Andyusa', 25, 85) succeeded");
+
+    int32_t read_low = 0, read_rec = 0;
+    l2m_id_profile_get_hp_thresholds("Andyusa", &read_low, &read_rec);
+    TEST_ASSERT(read_low == 25, "Andyusa low_hp_threshold updated to 25%");
+    TEST_ASSERT(read_rec == 85, "Andyusa recover_hp_threshold updated to 85%");
+
+    /* 测试中文角色配置文件的阈值保存与边界修剪 (low_hp=2, recover_hp=2 非法边界测试) */
+    bool set_cn_hp_ok = l2m_id_profile_set_hp_thresholds("狂风舞者", 2, 2);
+    TEST_ASSERT(set_cn_hp_ok, "l2m_id_profile_set_hp_thresholds('狂风舞者', 2, 2) handled safely");
+
+    int32_t cn_low = 0, cn_rec = 0;
+    l2m_id_profile_get_hp_thresholds("狂风舞者", &cn_low, &cn_rec);
+    TEST_ASSERT(cn_low == 5, "狂风舞者 low_hp clamped to minimum 5%");
+    TEST_ASSERT(cn_rec == 15, "狂风舞者 recover_hp auto adjusted > low_hp (15%)");
+
+    /* 恢复正常阈值 */
+    l2m_id_profile_set_hp_thresholds("Andyusa", 30, 80);
+    l2m_id_profile_set_hp_thresholds("狂风舞者", 30, 80);
 }
 
 int main(void) {

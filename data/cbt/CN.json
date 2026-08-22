@@ -104,6 +104,32 @@
     "max_bg_brightness": 150.0,
     "detect_player_indicator": true
   },
+  "hp_bar_config": {
+    "offset_x": 64,
+    "offset_y": 21,
+    "width": 103,
+    "height": 2,
+    "target_color_1": [
+      230,
+      48,
+      48
+    ],
+    "tolerance_1": [
+      25,
+      25,
+      25
+    ],
+    "target_color_2": [
+      255,
+      157,
+      57
+    ],
+    "tolerance_2": [
+      10,
+      10,
+      10
+    ]
+  },
   "inventory_slot1_empty_1": {
     "pos": [
       305,

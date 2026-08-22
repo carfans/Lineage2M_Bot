@@ -2,15 +2,18 @@
   "window_profiles": [
     {
       "profile_id": "profile_01",
-      "profile_name": "主号 (EN / Andyusa)",
+      "profile_name": "主号 (CN / Andyusa)",
       "character_name": "Andyusa",
-      "region": "EN",
+      "region": "CN",
       "match_rule": "INDEX",
       "match_window_index": 0,
       "match_title_keyword": "",
-      "auto_detect_region": true,
+      "auto_detect_region": false,
+      "auto_dismiss_popup": true,
+      "low_hp_threshold": 30,
+      "recover_hp_threshold": 80,
       "enabled": true,
-      "notes": "绑定系统检测到的第1个游戏窗口，加载美欧服英文配置"
+      "notes": "绑定系统检测到的第1个游戏窗口，默认加载国服简中配置"
     },
     {
       "profile_id": "profile_02",
@@ -21,6 +24,9 @@
       "match_window_index": 1,
       "match_title_keyword": "",
       "auto_detect_region": false,
+      "auto_dismiss_popup": true,
+      "low_hp_threshold": 30,
+      "recover_hp_threshold": 80,
       "enabled": true,
       "notes": "绑定系统检测到的第2个游戏窗口，加载国服简中配置(无需识别中文窗口标题)"
     },
@@ -33,6 +39,9 @@
       "match_window_index": 2,
       "match_title_keyword": "",
       "auto_detect_region": false,
+      "auto_dismiss_popup": true,
+      "low_hp_threshold": 30,
+      "recover_hp_threshold": 80,
       "enabled": true,
       "notes": "绑定第3个游戏窗口，加载日服配置"
     },
@@ -45,6 +54,9 @@
       "match_window_index": 3,
       "match_title_keyword": "",
       "auto_detect_region": false,
+      "auto_dismiss_popup": true,
+      "low_hp_threshold": 30,
+      "recover_hp_threshold": 80,
       "enabled": true,
       "notes": "绑定第4个游戏窗口，加载俄服配置"
     },
@@ -57,6 +69,9 @@
       "match_window_index": 0,
       "match_title_keyword": "Lineage2M_CN_Main",
       "auto_detect_region": false,
+      "auto_dismiss_popup": true,
+      "low_hp_threshold": 30,
+      "recover_hp_threshold": 80,
       "enabled": true,
       "notes": "手动绑定中文测试"
     }

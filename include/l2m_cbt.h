@@ -83,6 +83,7 @@ typedef struct {
 } L2MPopupScanConfig;
 
 #include "l2m_zone.h"
+#include "l2m_hp.h"
 
 typedef struct {
     char region[8];          /* "CN", "EN", "JP", "RU" */
@@ -92,13 +93,20 @@ typedef struct {
     L2MPopupScanConfig popup_cfg;
     L2MMapZoneConfig map_zone_cfg; /* 左上角地图框与区域检测配置 */
     L2MRect map_box_roi;           /* 快捷兼容别名 (map_box_roi.x 等同于 map_zone_cfg.x) */
+    L2MHpConfig hp_bar_cfg;        /* 血条采样与颜色容差配置 */
 } L2MCbtConfig;
 
 /* 从 data/cbt/<REGION>.json 或 bot/data/cbt/<REGION>.json 加载配置 */
 bool l2m_cbt_load(const char* region, L2MCbtConfig* cfg);
 
-/* 保存配置回 JSON 文件 (同时保存特征点、命名弹窗与地图框配置) */
+/* 保存配置回 JSON 文件 (同时保存特征点、命名弹窗、地图框与血条配置) */
 bool l2m_cbt_save(const L2MCbtConfig* cfg);
+
+/* 获取血条参数配置 */
+bool l2m_cbt_get_hp_config(const L2MCbtConfig* cfg, L2MHpConfig* out_cfg);
+
+/* 设置血条参数配置 */
+bool l2m_cbt_set_hp_config(L2MCbtConfig* cfg, const L2MHpConfig* hp_cfg);
 
 /* 获取地图区域完整配置 */
 bool l2m_cbt_get_map_zone_config(const L2MCbtConfig* cfg, L2MMapZoneConfig* out_cfg);

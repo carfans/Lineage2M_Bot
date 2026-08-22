@@ -22,6 +22,7 @@
 #define ID_BTN_REFRESH_WINS  1041
 #define ID_BTN_ALIGN_4WINS   1042
 #define ID_BTN_SAVE_WIN_PROF 1043
+#define ID_CB_DEBUG_MONITOR  1044
 
 #define ID_BTN_CAPTURE       1001
 #define ID_BTN_DETECT_POPUP  1002
@@ -58,6 +59,17 @@
 #define ID_BTN_LOAD_IMAGE    1021
 #define ID_ZOOM_VIEW         1022
 
+/* 血条参数调试控件 ID */
+#define ID_TXT_HP_POS        1050
+#define ID_TXT_HP_SIZE       1051
+#define ID_TXT_HP_COLOR1     1052
+#define ID_TXT_HP_TOL1       1053
+#define ID_TXT_HP_COLOR2     1054
+#define ID_TXT_HP_TOL2       1055
+#define ID_BTN_SAVE_HP       1056
+#define ID_BTN_APPLY_HP_C1   1057
+#define ID_BTN_APPLY_HP_C2   1058
+
 static HWND g_hDebugWnd = NULL;
 static HWND g_hTargetGameWnd = NULL;
 static HWND g_hCanvas = NULL;
@@ -81,8 +93,18 @@ static HWND g_hCbtPosTxt = NULL;
 static HWND g_hCbtRgbTxt = NULL;
 static HWND g_hCbtTolTxt = NULL;
 
+/* 血条调试控件句柄 */
+static HWND g_hHpPosTxt = NULL;
+static HWND g_hHpSizeTxt = NULL;
+static HWND g_hHpColor1Txt = NULL;
+static HWND g_hHpTol1Txt = NULL;
+static HWND g_hHpColor2Txt = NULL;
+static HWND g_hHpTol2Txt = NULL;
+
 /* 多开窗口与角色配置管理句柄与状态 */
 static HWND g_hWindowProfileCb = NULL;
+static HWND g_hDebugMonitorCb = NULL;
+static L2MMonitorList g_debug_monitor_list;
 static L2MWindowProfileList g_win_profile_list;
 static L2MWindowInstance g_detected_game_windows[MAX_GAME_WINDOWS];
 static int32_t g_detected_game_window_count = 0;
@@ -107,6 +129,11 @@ static L2MPoint g_overlay_cb_pt = {0};
 static bool g_has_map_overlay = false;
 static L2MMapBoxResult g_last_map_result = {0};
 
+/* 血条高亮叠加 */
+static bool g_has_hp_overlay = false;
+static L2MHpResult g_last_hp_result = {0};
+static L2MHpConfig g_debug_hp_cfg = {0};
+
 /* 鼠标交互取点取色 */
 static L2MPoint g_last_pick_pt = {-1, -1};
 static L2MRGB g_last_pick_rgb = {0, 0, 0};
@@ -117,6 +144,7 @@ static L2MPoint g_selected_cbt_pt = {-1, -1};
 static L2MPoint g_zoom_center_pt = {-1, -1};
 
 static void update_debug_window_title(void);
+static void refresh_debug_monitors_ui(void);
 
 /* 递归设置字体 */
 static void apply_debug_ui_font(HWND hWnd, HFONT hFont) {
@@ -517,11 +545,135 @@ static void sync_cbt_point_selection(int idx) {
     if (g_hZoomCanvas) InvalidateRect(g_hZoomCanvas, NULL, FALSE);
 }
 
+/* 刷新与同步血条参数至编辑框 */
+static void refresh_hp_params_ui(void) {
+    L2MHpConfig* hp = &g_current_cbt_cfg.hp_bar_cfg;
+    g_debug_hp_cfg = *hp;
+    wchar_t buf[64];
+
+    swprintf(buf, sizeof(buf)/sizeof(wchar_t), L"%d, %d", hp->offset_x, hp->offset_y);
+    if (g_hHpPosTxt) SetWindowTextW(g_hHpPosTxt, buf);
+
+    swprintf(buf, sizeof(buf)/sizeof(wchar_t), L"%d, %d", hp->width, hp->height);
+    if (g_hHpSizeTxt) SetWindowTextW(g_hHpSizeTxt, buf);
+
+    swprintf(buf, sizeof(buf)/sizeof(wchar_t), L"%d, %d, %d", hp->target_color_1.r, hp->target_color_1.g, hp->target_color_1.b);
+    if (g_hHpColor1Txt) SetWindowTextW(g_hHpColor1Txt, buf);
+
+    swprintf(buf, sizeof(buf)/sizeof(wchar_t), L"%d, %d, %d", hp->tolerance_1.r, hp->tolerance_1.g, hp->tolerance_1.b);
+    if (g_hHpTol1Txt) SetWindowTextW(g_hHpTol1Txt, buf);
+
+    swprintf(buf, sizeof(buf)/sizeof(wchar_t), L"%d, %d, %d", hp->target_color_2.r, hp->target_color_2.g, hp->target_color_2.b);
+    if (g_hHpColor2Txt) SetWindowTextW(g_hHpColor2Txt, buf);
+
+    swprintf(buf, sizeof(buf)/sizeof(wchar_t), L"%d, %d, %d", hp->tolerance_2.r, hp->tolerance_2.g, hp->tolerance_2.b);
+    if (g_hHpTol2Txt) SetWindowTextW(g_hHpTol2Txt, buf);
+}
+
+/* 从编辑框读取血条参数 */
+static void read_hp_params_from_ui(L2MHpConfig* cfg) {
+    if (!cfg) return;
+    wchar_t buf[64];
+    int x = 64, y = 21, w = 103, h = 2;
+    if (g_hHpPosTxt) {
+        GetWindowTextW(g_hHpPosTxt, buf, 64);
+        swscanf(buf, L"%d, %d", &x, &y);
+    }
+    if (g_hHpSizeTxt) {
+        GetWindowTextW(g_hHpSizeTxt, buf, 64);
+        swscanf(buf, L"%d, %d", &w, &h);
+    }
+    cfg->offset_x = x;
+    cfg->offset_y = y;
+    cfg->width = (w > 0) ? w : 103;
+    cfg->height = (h > 0) ? h : 2;
+
+    int r = 230, g = 48, b = 48;
+    if (g_hHpColor1Txt) {
+        GetWindowTextW(g_hHpColor1Txt, buf, 64);
+        swscanf(buf, L"%d, %d, %d", &r, &g, &b);
+    }
+    cfg->target_color_1 = (L2MRGB){(uint8_t)r, (uint8_t)g, (uint8_t)b};
+
+    int tr = 25, tg = 25, tb = 25;
+    if (g_hHpTol1Txt) {
+        GetWindowTextW(g_hHpTol1Txt, buf, 64);
+        swscanf(buf, L"%d, %d, %d", &tr, &tg, &tb);
+    }
+    cfg->tolerance_1 = (L2MRGB){(uint8_t)tr, (uint8_t)tg, (uint8_t)tb};
+
+    int r2 = 255, g2 = 157, b2 = 57;
+    if (g_hHpColor2Txt) {
+        GetWindowTextW(g_hHpColor2Txt, buf, 64);
+        swscanf(buf, L"%d, %d, %d", &r2, &g2, &b2);
+    }
+    cfg->target_color_2 = (L2MRGB){(uint8_t)r2, (uint8_t)g2, (uint8_t)b2};
+
+    int tr2 = 10, tg2 = 10, tb2 = 10;
+    if (g_hHpTol2Txt) {
+        GetWindowTextW(g_hHpTol2Txt, buf, 64);
+        swscanf(buf, L"%d, %d, %d", &tr2, &tg2, &tb2);
+    }
+    cfg->tolerance_2 = (L2MRGB){(uint8_t)tr2, (uint8_t)tg2, (uint8_t)tb2};
+}
+
+/* 一键填入拾取色至血条颜色1 */
+static void apply_picked_color_to_hp1(void) {
+    if (g_last_pick_pt.x < 0 || g_last_pick_pt.y < 0) {
+        MessageBoxW(g_hDebugWnd, L"请先在右侧画板点击选择一个像素点！", L"提示", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    wchar_t buf[64];
+    swprintf(buf, sizeof(buf)/sizeof(wchar_t), L"%d, %d, %d", g_last_pick_rgb.r, g_last_pick_rgb.g, g_last_pick_rgb.b);
+    if (g_hHpColor1Txt) SetWindowTextW(g_hHpColor1Txt, buf);
+}
+
+/* 一键填入拾取色至血条颜色2 */
+static void apply_picked_color_to_hp2(void) {
+    if (g_last_pick_pt.x < 0 || g_last_pick_pt.y < 0) {
+        MessageBoxW(g_hDebugWnd, L"请先在右侧画板点击选择一个像素点！", L"提示", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    wchar_t buf[64];
+    swprintf(buf, sizeof(buf)/sizeof(wchar_t), L"%d, %d, %d", g_last_pick_rgb.r, g_last_pick_rgb.g, g_last_pick_rgb.b);
+    if (g_hHpColor2Txt) SetWindowTextW(g_hHpColor2Txt, buf);
+}
+
+/* 保存当前血条配置至当前语言 JSON 文件 */
+static void save_hp_config_to_json(void) {
+    read_hp_params_from_ui(&g_current_cbt_cfg.hp_bar_cfg);
+    g_debug_hp_cfg = g_current_cbt_cfg.hp_bar_cfg;
+
+    if (l2m_cbt_save(&g_current_cbt_cfg)) {
+        wchar_t tip[512];
+        swprintf(tip, sizeof(tip)/sizeof(wchar_t),
+                 L"✅ 【%hs】语言血条配置已成功保存至 CBT 库！\r\n"
+                 L"📁 目标文件: %hs\r\n"
+                 L"📍 采样区域: (%d, %d, %d, %d)\r\n"
+                 L"🎨 主颜色1: RGB(%d, %d, %d) 容差(%d, %d, %d)\r\n"
+                 L"🎨 辅颜色2: RGB(%d, %d, %d) 容差(%d, %d, %d)",
+                 g_current_cbt_cfg.region, g_current_cbt_cfg.file_path,
+                 g_debug_hp_cfg.offset_x, g_debug_hp_cfg.offset_y, g_debug_hp_cfg.width, g_debug_hp_cfg.height,
+                 g_debug_hp_cfg.target_color_1.r, g_debug_hp_cfg.target_color_1.g, g_debug_hp_cfg.target_color_1.b,
+                 g_debug_hp_cfg.tolerance_1.r, g_debug_hp_cfg.tolerance_1.g, g_debug_hp_cfg.tolerance_1.b,
+                 g_debug_hp_cfg.target_color_2.r, g_debug_hp_cfg.target_color_2.g, g_debug_hp_cfg.target_color_2.b,
+                 g_debug_hp_cfg.tolerance_2.r, g_debug_hp_cfg.tolerance_2.g, g_debug_hp_cfg.tolerance_2.b);
+        SetWindowTextW(g_hStatusText, tip);
+        MessageBoxW(g_hDebugWnd, tip, L"血条配置保存成功", MB_OK | MB_ICONINFORMATION);
+    } else {
+        wchar_t err_msg[512];
+        swprintf(err_msg, sizeof(err_msg)/sizeof(wchar_t),
+                 L"❌ 保存血条配置失败！\r\n目标文件: %hs", g_current_cbt_cfg.file_path);
+        MessageBoxW(g_hDebugWnd, err_msg, L"保存错误", MB_OK | MB_ICONERROR);
+    }
+}
+
 /* 加载并切换当前语言 CBT 配置 */
 static void switch_cbt_region(const char* region) {
     l2m_cbt_load(region, &g_current_cbt_cfg);
     refresh_cbt_points_ui(NULL);
     refresh_popup_list_ui(NULL);
+    refresh_hp_params_ui();
 
     if (g_current_cbt_cfg.count > 0) {
         sync_cbt_point_selection(0);
@@ -823,6 +975,54 @@ static void on_paint_canvas(HWND hWnd) {
 
             SelectObject(hdcMem, hOldPen);
             DeleteObject(hPenMap);
+        }
+
+        /* 绘制血条高亮叠加层 (ROI 采样框、实测血量进度与端点标尺) */
+        if (g_has_hp_overlay) {
+            int hx = (int)(g_debug_hp_cfg.offset_x * scale_x);
+            int hy = (int)(g_debug_hp_cfg.offset_y * scale_y);
+            int hw = (int)(g_debug_hp_cfg.width * scale_x);
+            int hh = (int)(g_debug_hp_cfg.height * scale_y);
+            if (hh < 8) hh = 8; /* 保证视觉可见度 */
+
+            /* 1. 绘制血条外框 (亮青色) */
+            HPEN hPenHpBox = CreatePen(PS_SOLID, 2, RGB(0, 255, 200));
+            HGDIOBJ hOldPen = SelectObject(hdcMem, hPenHpBox);
+            SelectObject(hdcMem, GetStockObject(NULL_BRUSH));
+            Rectangle(hdcMem, hx - 2, hy - 2, hx + hw + 3, hy + hh + 3);
+
+            /* 2. 绘制实测有效血量进度条填充 (亮红色) */
+            if (g_last_hp_result.is_valid && g_last_hp_result.hp_percent > 0) {
+                int valid_w = (int)((float)hw * (float)g_last_hp_result.hp_percent / 100.0f);
+                if (valid_w > hw) valid_w = hw;
+                HBRUSH hBrHp = CreateSolidBrush(RGB(255, 48, 48));
+                RECT rc_hp = {hx, hy, hx + valid_w, hy + hh};
+                FillRect(hdcMem, &rc_hp, hBrHp);
+                DeleteObject(hBrHp);
+
+                /* 3. 在有效端点绘制醒目垂直黄色标尺线 */
+                HPEN hPenEnd = CreatePen(PS_SOLID, 2, RGB(255, 220, 0));
+                SelectObject(hdcMem, hPenEnd);
+                MoveToEx(hdcMem, hx + valid_w, hy - 6, NULL);
+                LineTo(hdcMem, hx + valid_w, hy + hh + 7);
+                DeleteObject(hPenEnd);
+            }
+
+            /* 4. 绘制文字标签 */
+            SetTextColor(hdcMem, RGB(0, 255, 200));
+            SetBkMode(hdcMem, TRANSPARENT);
+            SelectObject(hdcMem, g_hFontBoldUI);
+            wchar_t hp_tag[128];
+            if (g_last_hp_result.is_valid) {
+                swprintf(hp_tag, sizeof(hp_tag)/sizeof(wchar_t), L"🩸 HP: %d%% (有效端点: %d/%d px)",
+                         g_last_hp_result.hp_percent, g_last_hp_result.sample_hp_end + 1, g_debug_hp_cfg.width);
+            } else {
+                swprintf(hp_tag, sizeof(hp_tag)/sizeof(wchar_t), L"🩸 HP: 0%% (未匹配到目标颜色)");
+            }
+            TextOutW(hdcMem, hx, (hy >= 20) ? (hy - 18) : (hy + hh + 4), hp_tag, (int)wcslen(hp_tag));
+
+            SelectObject(hdcMem, hOldPen);
+            DeleteObject(hPenHpBox);
         }
 
         /* 绘制当前选中的 CBT 采样点 */
@@ -1172,6 +1372,7 @@ static void refresh_game_windows_and_profiles_ui(void) {
     SendMessageW(g_hWindowProfileCb, CB_SETCURSEL, g_current_selected_win_idx, 0);
     g_hTargetGameWnd = g_detected_game_windows[g_current_selected_win_idx].hwnd;
     update_debug_window_title();
+    refresh_debug_monitors_ui();
 }
 
 /* 响应选择游戏窗口/角色切换 */
@@ -1239,15 +1440,45 @@ static void on_window_profile_selected(int idx) {
     SetWindowTextW(g_hStatusText, tip);
 }
 
-/* 执行四开 2x2 网格窗口自动对齐 */
+/* 刷新调试窗口显示器列表至下拉框 */
+static void refresh_debug_monitors_ui(void) {
+    if (!g_hDebugMonitorCb) return;
+    SendMessageW(g_hDebugMonitorCb, CB_RESETCONTENT, 0, 0);
+
+    l2m_enum_monitors(&g_debug_monitor_list);
+
+    for (int i = 0; i < g_debug_monitor_list.count; i++) {
+        const L2MMonitorInfo* mon = &g_debug_monitor_list.monitors[i];
+        wchar_t wdesc[128];
+        MultiByteToWideChar(CP_UTF8, 0, mon->desc, -1, wdesc, sizeof(wdesc)/sizeof(wchar_t));
+        SendMessageW(g_hDebugMonitorCb, CB_ADDSTRING, 0, (LPARAM)wdesc);
+    }
+
+    int sel = (g_debug_monitor_list.primary_index >= 0 && g_debug_monitor_list.primary_index < g_debug_monitor_list.count)
+              ? g_debug_monitor_list.primary_index : 0;
+    SendMessageW(g_hDebugMonitorCb, CB_SETCURSEL, sel, 0);
+}
+
+/* 执行四开 2x2 网格窗口自动对齐至选定物理显示器 */
 static void execute_align_4_windows(void) {
+    int mon_idx = (int)SendMessageW(g_hDebugMonitorCb, CB_GETCURSEL, 0, 0);
+    if (mon_idx < 0) mon_idx = 0;
+
     int32_t count = 0;
-    if (l2m_align_game_windows(L2M_ALIGN_GRID_2X2, 960, 540, &count)) {
+    if (l2m_align_game_windows_ex(L2M_ALIGN_GRID_2X2, 960, 540, mon_idx, &count)) {
         refresh_game_windows_and_profiles_ui();
+
+        wchar_t mon_name[128] = L"主屏幕";
+        if (mon_idx < g_debug_monitor_list.count) {
+            MultiByteToWideChar(CP_UTF8, 0, g_debug_monitor_list.monitors[mon_idx].desc, -1, mon_name, 128);
+        }
+
         wchar_t msg[512];
         swprintf(msg, sizeof(msg)/sizeof(wchar_t),
                  L"🪟 已成功执行【2x2 四开网格对齐】！\r\n"
-                 L"已自动排列 %d 个游戏窗口至标准 960x540 分辨率，消除所有重叠与边框遮挡。", count);
+                 L"目标物理显示器: 【%ls】\r\n"
+                 L"已自动排列 %d 个游戏窗口至标准 960x540 分辨率，消除所有重叠与边框遮挡。",
+                 mon_name, count);
         SetWindowTextW(g_hStatusText, msg);
         MessageBoxW(g_hDebugWnd, msg, L"四开对齐完成", MB_OK | MB_ICONINFORMATION);
     } else {
@@ -1455,7 +1686,7 @@ static void execute_test_click(void) {
     SetWindowTextW(g_hStatusText, tip);
 }
 
-/* 执行血条计算测试 */
+/* 执行血条计算测试并可视化高亮 */
 static void execute_hp_test(void) {
     if (!g_current_frame_rgb) {
         MessageBoxW(g_hDebugWnd, L"请先捕获画面截图或载入图片！", L"提示", MB_OK | MB_ICONWARNING);
@@ -1463,28 +1694,55 @@ static void execute_hp_test(void) {
     }
 
     L2MHpConfig cfg;
-    memset(&cfg, 0, sizeof(cfg));
-    cfg.offset_x = 64;
-    cfg.offset_y = 21;
-    cfg.width = 103;
-    cfg.height = 2;
-    cfg.target_color_1 = (L2MRGB){168, 69, 2};
-    cfg.tolerance_1 = (L2MRGB){30, 30, 20};
-    cfg.target_color_2 = (L2MRGB){255, 157, 57};
-    cfg.tolerance_2 = (L2MRGB){10, 10, 10};
+    read_hp_params_from_ui(&cfg);
+    g_debug_hp_cfg = cfg;
 
     L2MHpResult hp_res;
+    memset(&hp_res, 0, sizeof(hp_res));
     bool ok = l2m_calculate_hp_from_fullscreen(g_current_frame_rgb, &cfg, &hp_res);
 
-    wchar_t buf[256];
+    g_has_hp_overlay = true;
+    g_last_hp_result = hp_res;
+
+    /* 放大镜聚焦到血条起点 */
+    g_zoom_center_pt.x = cfg.offset_x;
+    g_zoom_center_pt.y = cfg.offset_y;
+    g_has_selected_cbt_pt = false;
+
+    wchar_t buf[512];
     if (ok && hp_res.is_valid) {
-        swprintf(buf, sizeof(buf)/sizeof(wchar_t), L"🩸 血条计算成功:\r\n  • 当前血量: %d%%\r\n  • 采样有效端点: %d px\r\n  • 实测采样均值: RGB(%d, %d, %d)",
-                 hp_res.hp_percent, hp_res.sample_hp_end,
-                 hp_res.mean_rgb.r, hp_res.mean_rgb.g, hp_res.mean_rgb.b);
+        swprintf(buf, sizeof(buf)/sizeof(wchar_t),
+                 L"🩸 血条参数测试结果 [语言: %hs]:\r\n"
+                 L"  • 当前血量百分比: 【 %d%% 】\r\n"
+                 L"  • 采样有效端点: 第 %d / %d 像素 (终点X: %d)\r\n"
+                 L"  • 实测采样区均值: RGB(%d, %d, %d)\r\n"
+                 L"  • 目标颜色1: RGB(%d, %d, %d) 容差(%d, %d, %d)\r\n"
+                 L"  • 目标颜色2: RGB(%d, %d, %d) 容差(%d, %d, %d)\r\n"
+                 L"  • 状态判定: ✅ 血条识别精准 (已在右侧画板实时高亮标尺)",
+                 g_current_cbt_cfg.region,
+                 hp_res.hp_percent, hp_res.sample_hp_end + 1, cfg.width, cfg.offset_x + hp_res.sample_hp_end,
+                 hp_res.mean_rgb.r, hp_res.mean_rgb.g, hp_res.mean_rgb.b,
+                 cfg.target_color_1.r, cfg.target_color_1.g, cfg.target_color_1.b,
+                 cfg.tolerance_1.r, cfg.tolerance_1.g, cfg.tolerance_1.b,
+                 cfg.target_color_2.r, cfg.target_color_2.g, cfg.target_color_2.b,
+                 cfg.tolerance_2.r, cfg.tolerance_2.g, cfg.tolerance_2.b);
     } else {
-        swprintf(buf, sizeof(buf)/sizeof(wchar_t), L"⚠️ 血条计算异常: 未匹配到有效血条像素 (可能血条被弹窗遮挡或角色死亡)");
+        swprintf(buf, sizeof(buf)/sizeof(wchar_t),
+                 L"⚠️ 血条计算异常 [语言: %hs]:\r\n"
+                 L"  • 未匹配到血条目标颜色！(当前实测血量判定为 0%%)\r\n"
+                 L"  • 采样区域: X=%d, Y=%d, W=%d, H=%d\r\n"
+                 L"  • 请检查右侧画板中青色高亮框是否完全框住血条，或使用【🎯 填入色1/色2】重新校准颜色！",
+                 g_current_cbt_cfg.region,
+                 cfg.offset_x, cfg.offset_y, cfg.width, cfg.height);
     }
     SetWindowTextW(g_hStatusText, buf);
+
+    wchar_t zinfo[128];
+    swprintf(zinfo, sizeof(zinfo)/sizeof(wchar_t), L"🔍 放大镜 (10x 放大) - 血条采样起点: (%d, %d)", cfg.offset_x, cfg.offset_y);
+    SetWindowTextW(g_hZoomInfoLbl, zinfo);
+
+    if (g_hCanvas) InvalidateRect(g_hCanvas, NULL, FALSE);
+    if (g_hZoomCanvas) InvalidateRect(g_hZoomCanvas, NULL, FALSE);
 }
 
 /* 比对当前 CBT 采样点在画面的实测颜色 */
@@ -1676,81 +1934,102 @@ static LRESULT CALLBACK DebugWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
             wcZ.lpszClassName = L"L2M_Zoom_View";
             RegisterClassW(&wcZ);
 
-            /* ===== 区域 0: 多开游戏窗口与角色配置选择 ===== */
-            CreateWindowW(L"STATIC", L"🎮 窗口/角色:", WS_CHILD | WS_VISIBLE, 15, 6, 75, 20, hWnd, NULL, NULL, NULL);
-            g_hWindowProfileCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 92, 3, 195, 250, hWnd, (HMENU)ID_CB_WIN_PROFILE, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"🔄 刷新", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 292, 2, 60, 25, hWnd, (HMENU)ID_BTN_REFRESH_WINS, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"🪟 四开对齐", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 356, 2, 84, 25, hWnd, (HMENU)ID_BTN_ALIGN_4WINS, NULL, NULL);
+            /* ===== 区域 0: 多开游戏窗口与显示器对齐管理 ===== */
+            CreateWindowW(L"STATIC", L"🎮 窗口:", WS_CHILD | WS_VISIBLE, 15, 6, 45, 20, hWnd, NULL, NULL, NULL);
+            g_hWindowProfileCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 60, 3, 135, 250, hWnd, (HMENU)ID_CB_WIN_PROFILE, NULL, NULL);
+            CreateWindowW(L"STATIC", L"🖥️ 屏幕:", WS_CHILD | WS_VISIBLE, 200, 6, 45, 20, hWnd, NULL, NULL, NULL);
+            g_hDebugMonitorCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 245, 3, 130, 200, hWnd, (HMENU)ID_CB_DEBUG_MONITOR, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🪟 对齐", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 380, 2, 60, 25, hWnd, (HMENU)ID_BTN_ALIGN_4WINS, NULL, NULL);
 
             /* ===== 区域 1: 命名弹窗管理与截图控制 ===== */
-            CreateWindowW(L"STATIC", L"弹窗选择:", WS_CHILD | WS_VISIBLE, 15, 34, 60, 20, hWnd, NULL, NULL, NULL);
-            g_hPopupTypeCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 75, 31, 210, 250, hWnd, (HMENU)ID_CB_POPUP_TYPE, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"➕ 新建", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 290, 30, 70, 25, hWnd, (HMENU)ID_BTN_NEW_POPUP, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"🗑️ 删除", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 365, 30, 75, 25, hWnd, (HMENU)ID_BTN_DEL_POPUP, NULL, NULL);
+            CreateWindowW(L"STATIC", L"弹窗选择:", WS_CHILD | WS_VISIBLE, 15, 33, 60, 20, hWnd, NULL, NULL, NULL);
+            g_hPopupTypeCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 75, 30, 210, 250, hWnd, (HMENU)ID_CB_POPUP_TYPE, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"➕ 新建", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 290, 29, 70, 25, hWnd, (HMENU)ID_BTN_NEW_POPUP, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🗑️ 删除", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 365, 29, 75, 25, hWnd, (HMENU)ID_BTN_DEL_POPUP, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"弹窗标识:", WS_CHILD | WS_VISIBLE, 15, 60, 60, 20, hWnd, NULL, NULL, NULL);
-            g_hPopupNameTxt = CreateWindowW(L"EDIT", L"center_modal", WS_CHILD | WS_VISIBLE | WS_BORDER, 75, 58, 150, 22, hWnd, (HMENU)ID_TXT_POPUP_NAME, NULL, NULL);
-            CreateWindowW(L"STATIC", L"描述:", WS_CHILD | WS_VISIBLE, 232, 60, 35, 20, hWnd, NULL, NULL, NULL);
-            g_hPopupDescTxt = CreateWindowW(L"EDIT", L"中间标准模态确认弹窗", WS_CHILD | WS_VISIBLE | WS_BORDER, 270, 58, 170, 22, hWnd, (HMENU)ID_TXT_POPUP_DESC, NULL, NULL);
+            CreateWindowW(L"STATIC", L"弹窗标识:", WS_CHILD | WS_VISIBLE, 15, 57, 60, 20, hWnd, NULL, NULL, NULL);
+            g_hPopupNameTxt = CreateWindowW(L"EDIT", L"center_modal", WS_CHILD | WS_VISIBLE | WS_BORDER, 75, 55, 150, 22, hWnd, (HMENU)ID_TXT_POPUP_NAME, NULL, NULL);
+            CreateWindowW(L"STATIC", L"描述:", WS_CHILD | WS_VISIBLE, 232, 57, 35, 20, hWnd, NULL, NULL, NULL);
+            g_hPopupDescTxt = CreateWindowW(L"EDIT", L"中间标准模态确认弹窗", WS_CHILD | WS_VISIBLE | WS_BORDER, 270, 55, 170, 22, hWnd, (HMENU)ID_TXT_POPUP_DESC, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"扫描 ROI:", WS_CHILD | WS_VISIBLE, 15, 85, 60, 20, hWnd, NULL, NULL, NULL);
-            g_hPopupRectTxt = CreateWindowW(L"EDIT", L"280, 150, 400, 240", WS_CHILD | WS_VISIBLE | WS_BORDER, 75, 83, 130, 22, hWnd, (HMENU)ID_TXT_POPUP_RECT, NULL, NULL);
-            CreateWindowW(L"STATIC", L"关联CBT:", WS_CHILD | WS_VISIBLE, 212, 85, 55, 20, hWnd, NULL, NULL, NULL);
-            g_hPopupLinkedCbtCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 270, 82, 170, 250, hWnd, (HMENU)ID_CB_POPUP_LINK_CBT, NULL, NULL);
+            CreateWindowW(L"STATIC", L"扫描 ROI:", WS_CHILD | WS_VISIBLE, 15, 81, 60, 20, hWnd, NULL, NULL, NULL);
+            g_hPopupRectTxt = CreateWindowW(L"EDIT", L"280, 150, 400, 240", WS_CHILD | WS_VISIBLE | WS_BORDER, 75, 79, 130, 22, hWnd, (HMENU)ID_TXT_POPUP_RECT, NULL, NULL);
+            CreateWindowW(L"STATIC", L"关联CBT:", WS_CHILD | WS_VISIBLE, 212, 81, 55, 20, hWnd, NULL, NULL, NULL);
+            g_hPopupLinkedCbtCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 270, 78, 170, 250, hWnd, (HMENU)ID_CB_POPUP_LINK_CBT, NULL, NULL);
 
-            CreateWindowW(L"BUTTON", L"🔍 识别弹窗", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 108, 100, 25, hWnd, (HMENU)ID_BTN_DETECT_POPUP, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"💾 保存/更新", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 120, 108, 105, 25, hWnd, (HMENU)ID_BTN_SAVE_POPUP, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"🖱️ 模拟关闭", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 230, 108, 100, 25, hWnd, (HMENU)ID_BTN_TEST_CLICK, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"📸 捕获画面", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 335, 108, 105, 25, hWnd, (HMENU)ID_BTN_CAPTURE, NULL, NULL);
-
-            CreateWindowW(L"BUTTON", L"💾 保存当前截图", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 136, 210, 25, hWnd, (HMENU)ID_BTN_SAVE_IMAGE, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"📂 载入本地图片", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 230, 136, 210, 25, hWnd, (HMENU)ID_BTN_LOAD_IMAGE, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🔍 识别弹窗", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 104, 82, 24, hWnd, (HMENU)ID_BTN_DETECT_POPUP, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"💾 保存弹窗", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 101, 104, 82, 24, hWnd, (HMENU)ID_BTN_SAVE_POPUP, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🖱️ 模拟关闭", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 187, 104, 82, 24, hWnd, (HMENU)ID_BTN_TEST_CLICK, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"📸 捕获", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 273, 104, 68, 24, hWnd, (HMENU)ID_BTN_CAPTURE, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🗺️ 地图", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 345, 104, 95, 24, hWnd, (HMENU)ID_BTN_DETECT_MAP, NULL, NULL);
 
             /* ===== 区域 2: 多语言 CBT 采样点管理 ===== */
-            CreateWindowW(L"STATIC", L"🌐 语言:", WS_CHILD | WS_VISIBLE, 15, 168, 45, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtRegionCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 60, 165, 55, 200, hWnd, (HMENU)ID_CB_CBT_REGION, NULL, NULL);
+            CreateWindowW(L"STATIC", L"🌐 语言:", WS_CHILD | WS_VISIBLE, 15, 134, 45, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtRegionCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 60, 131, 55, 200, hWnd, (HMENU)ID_CB_CBT_REGION, NULL, NULL);
             SendMessageW(g_hCbtRegionCb, CB_ADDSTRING, 0, (LPARAM)L"CN");
             SendMessageW(g_hCbtRegionCb, CB_ADDSTRING, 0, (LPARAM)L"EN");
             SendMessageW(g_hCbtRegionCb, CB_ADDSTRING, 0, (LPARAM)L"JP");
             SendMessageW(g_hCbtRegionCb, CB_ADDSTRING, 0, (LPARAM)L"RU");
             SendMessageW(g_hCbtRegionCb, CB_SETCURSEL, 0, 0);
 
-            CreateWindowW(L"STATIC", L"🎯 CBT点位:", WS_CHILD | WS_VISIBLE, 120, 168, 65, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtPointsCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 185, 165, 162, 450, hWnd, (HMENU)ID_CB_CBT_POINTS, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"💾 绑定保存", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 352, 164, 88, 25, hWnd, (HMENU)ID_BTN_SAVE_WIN_PROF, NULL, NULL);
+            CreateWindowW(L"STATIC", L"🎯 CBT点位:", WS_CHILD | WS_VISIBLE, 120, 134, 65, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtPointsCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 185, 131, 162, 450, hWnd, (HMENU)ID_CB_CBT_POINTS, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"💾 绑定保存", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 352, 130, 88, 25, hWnd, (HMENU)ID_BTN_SAVE_WIN_PROF, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"点位Key:", WS_CHILD | WS_VISIBLE, 15, 193, 58, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtKeyTxt = CreateWindowW(L"EDIT", L"home_scroll_button_no_energomode", WS_CHILD | WS_VISIBLE | WS_BORDER, 75, 191, 365, 22, hWnd, (HMENU)ID_TXT_CBT_KEY, NULL, NULL);
+            CreateWindowW(L"STATIC", L"点位Key:", WS_CHILD | WS_VISIBLE, 15, 158, 58, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtKeyTxt = CreateWindowW(L"EDIT", L"home_scroll_button_no_energomode", WS_CHILD | WS_VISIBLE | WS_BORDER, 75, 156, 365, 22, hWnd, (HMENU)ID_TXT_CBT_KEY, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"坐标:", WS_CHILD | WS_VISIBLE, 15, 218, 35, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtPosTxt = CreateWindowW(L"EDIT", L"217, 487", WS_CHILD | WS_VISIBLE | WS_BORDER, 50, 216, 75, 22, hWnd, (HMENU)ID_TXT_CBT_POS, NULL, NULL);
+            CreateWindowW(L"STATIC", L"坐标:", WS_CHILD | WS_VISIBLE, 15, 182, 35, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtPosTxt = CreateWindowW(L"EDIT", L"217, 487", WS_CHILD | WS_VISIBLE | WS_BORDER, 50, 180, 75, 22, hWnd, (HMENU)ID_TXT_CBT_POS, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"RGB:", WS_CHILD | WS_VISIBLE, 130, 218, 30, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtRgbTxt = CreateWindowW(L"EDIT", L"174, 149, 130", WS_CHILD | WS_VISIBLE | WS_BORDER, 162, 216, 98, 22, hWnd, (HMENU)ID_TXT_CBT_RGB, NULL, NULL);
+            CreateWindowW(L"STATIC", L"RGB:", WS_CHILD | WS_VISIBLE, 130, 182, 30, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtRgbTxt = CreateWindowW(L"EDIT", L"174, 149, 130", WS_CHILD | WS_VISIBLE | WS_BORDER, 162, 180, 98, 22, hWnd, (HMENU)ID_TXT_CBT_RGB, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"容差:", WS_CHILD | WS_VISIBLE, 265, 218, 35, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtTolTxt = CreateWindowW(L"EDIT", L"12", WS_CHILD | WS_VISIBLE | WS_BORDER, 300, 216, 38, 22, hWnd, (HMENU)ID_TXT_CBT_TOL, NULL, NULL);
+            CreateWindowW(L"STATIC", L"容差:", WS_CHILD | WS_VISIBLE, 265, 182, 35, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtTolTxt = CreateWindowW(L"EDIT", L"12", WS_CHILD | WS_VISIBLE | WS_BORDER, 300, 180, 38, 22, hWnd, (HMENU)ID_TXT_CBT_TOL, NULL, NULL);
 
-            CreateWindowW(L"BUTTON", L"🩸血条", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 342, 214, 48, 25, hWnd, (HMENU)ID_BTN_TEST_HP, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"🗺️地图", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 393, 214, 48, 25, hWnd, (HMENU)ID_BTN_DETECT_MAP, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🎯 填入拾取", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 345, 179, 95, 24, hWnd, (HMENU)ID_BTN_CBT_APPLY_PT, NULL, NULL);
 
-            CreateWindowW(L"BUTTON", L"🎯 填入拾取", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 242, 100, 25, hWnd, (HMENU)ID_BTN_CBT_APPLY_PT, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"🔬 比对测试", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 120, 242, 100, 25, hWnd, (HMENU)ID_BTN_CBT_TEST_PT, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"💾 保存特征", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 225, 242, 105, 25, hWnd, (HMENU)ID_BTN_CBT_SAVE_JSON, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"🗑️ 删除点位", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 335, 242, 105, 25, hWnd, (HMENU)ID_BTN_CBT_DEL_PT, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🔬 比对测试", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 205, 95, 24, hWnd, (HMENU)ID_BTN_CBT_TEST_PT, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"💾 保存特征", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 115, 205, 95, 24, hWnd, (HMENU)ID_BTN_CBT_SAVE_JSON, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🗑️ 删除点位", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 215, 205, 95, 24, hWnd, (HMENU)ID_BTN_CBT_DEL_PT, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"💾 存截图", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 315, 205, 60, 24, hWnd, (HMENU)ID_BTN_SAVE_IMAGE, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"📂 载入", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 380, 205, 60, 24, hWnd, (HMENU)ID_BTN_LOAD_IMAGE, NULL, NULL);
+
+            /* ===== 区域 2.5: 🩸 血条参数精准调试与保存 ===== */
+            CreateWindowW(L"STATIC", L"🩸 血条位置:", WS_CHILD | WS_VISIBLE, 15, 234, 68, 20, hWnd, NULL, NULL, NULL);
+            g_hHpPosTxt = CreateWindowW(L"EDIT", L"64, 21", WS_CHILD | WS_VISIBLE | WS_BORDER, 83, 232, 60, 22, hWnd, (HMENU)ID_TXT_HP_POS, NULL, NULL);
+
+            CreateWindowW(L"STATIC", L"尺寸:", WS_CHILD | WS_VISIBLE, 148, 234, 35, 20, hWnd, NULL, NULL, NULL);
+            g_hHpSizeTxt = CreateWindowW(L"EDIT", L"103, 2", WS_CHILD | WS_VISIBLE | WS_BORDER, 183, 232, 58, 22, hWnd, (HMENU)ID_TXT_HP_SIZE, NULL, NULL);
+
+            CreateWindowW(L"BUTTON", L"🩸 测试血条", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 246, 231, 95, 24, hWnd, (HMENU)ID_BTN_TEST_HP, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"💾 保存血条", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 345, 231, 95, 24, hWnd, (HMENU)ID_BTN_SAVE_HP, NULL, NULL);
+
+            CreateWindowW(L"STATIC", L"主色1:", WS_CHILD | WS_VISIBLE, 15, 259, 42, 20, hWnd, NULL, NULL, NULL);
+            g_hHpColor1Txt = CreateWindowW(L"EDIT", L"230, 48, 48", WS_CHILD | WS_VISIBLE | WS_BORDER, 57, 257, 85, 22, hWnd, (HMENU)ID_TXT_HP_COLOR1, NULL, NULL);
+            CreateWindowW(L"STATIC", L"容差1:", WS_CHILD | WS_VISIBLE, 147, 259, 40, 20, hWnd, NULL, NULL, NULL);
+            g_hHpTol1Txt = CreateWindowW(L"EDIT", L"25, 25, 25", WS_CHILD | WS_VISIBLE | WS_BORDER, 187, 257, 68, 22, hWnd, (HMENU)ID_TXT_HP_TOL1, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🎯 填入色1", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 260, 256, 82, 24, hWnd, (HMENU)ID_BTN_APPLY_HP_C1, NULL, NULL);
+
+            CreateWindowW(L"STATIC", L"辅色2:", WS_CHILD | WS_VISIBLE, 15, 284, 42, 20, hWnd, NULL, NULL, NULL);
+            g_hHpColor2Txt = CreateWindowW(L"EDIT", L"255, 157, 57", WS_CHILD | WS_VISIBLE | WS_BORDER, 57, 282, 85, 22, hWnd, (HMENU)ID_TXT_HP_COLOR2, NULL, NULL);
+            CreateWindowW(L"STATIC", L"容差2:", WS_CHILD | WS_VISIBLE, 147, 284, 40, 20, hWnd, NULL, NULL, NULL);
+            g_hHpTol2Txt = CreateWindowW(L"EDIT", L"10, 10, 10", WS_CHILD | WS_VISIBLE | WS_BORDER, 187, 282, 68, 22, hWnd, (HMENU)ID_TXT_HP_TOL2, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🎯 填入色2", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 260, 281, 82, 24, hWnd, (HMENU)ID_BTN_APPLY_HP_C2, NULL, NULL);
 
             /* ===== 区域 3: 采样点 11x11 像素放大镜 (110x110 像素网格完整展示) ===== */
-            g_hZoomInfoLbl = CreateWindowW(L"STATIC", L"🔍 放大镜 (10x 放大) - 采样中心: 未选择", WS_CHILD | WS_VISIBLE, 15, 272, 425, 18, hWnd, NULL, NULL, NULL);
-            g_hZoomCanvas = CreateWindowW(L"L2M_Zoom_View", L"", WS_CHILD | WS_VISIBLE | WS_BORDER, 15, 292, 112, 112, hWnd, (HMENU)ID_ZOOM_VIEW, NULL, NULL);
+            g_hZoomInfoLbl = CreateWindowW(L"STATIC", L"🔍 放大镜 (10x 放大) - 采样中心: 未选择", WS_CHILD | WS_VISIBLE, 15, 308, 425, 18, hWnd, NULL, NULL, NULL);
+            g_hZoomCanvas = CreateWindowW(L"L2M_Zoom_View", L"", WS_CHILD | WS_VISIBLE | WS_BORDER, 15, 328, 92, 92, hWnd, (HMENU)ID_ZOOM_VIEW, NULL, NULL);
 
-            g_hColorInfoLbl = CreateWindowW(L"STATIC", L"📍 鼠标取点: 点击右侧画面任意位置拾取坐标与 RGB", WS_CHILD | WS_VISIBLE, 135, 292, 305, 36, hWnd, NULL, NULL, NULL);
+            g_hColorInfoLbl = CreateWindowW(L"STATIC", L"📍 鼠标取点: 点击右侧画面任意位置拾取坐标与 RGB", WS_CHILD | WS_VISIBLE, 114, 328, 326, 36, hWnd, NULL, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"【检测与比对诊断报告】:", WS_CHILD | WS_VISIBLE, 135, 334, 200, 18, hWnd, NULL, NULL, NULL);
+            CreateWindowW(L"STATIC", L"【检测与比对诊断报告】:", WS_CHILD | WS_VISIBLE, 114, 368, 200, 18, hWnd, NULL, NULL, NULL);
 
             /* ===== 区域 4: 诊断与状态信息框 ===== */
-            g_hStatusText = CreateWindowW(L"EDIT", L"就绪。可进行多开窗口切换、实时画面捕获、放大镜观察与特征微调。",
+            g_hStatusText = CreateWindowW(L"EDIT", L"就绪。可进行多开窗口切换、实时画面捕获、血条参数精准微调与特征管理。",
                                           WS_CHILD | WS_VISIBLE | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
-                                          15, 410, 425, 160, hWnd, (HMENU)ID_TXT_STATUS, NULL, NULL);
+                                          15, 425, 425, 145, hWnd, (HMENU)ID_TXT_STATUS, NULL, NULL);
 
             /* 右侧 960x540 大画板 (向右平移至 x=455) */
             g_hCanvas = CreateWindowW(L"L2M_Canvas_View", L"", WS_CHILD | WS_VISIBLE | WS_BORDER, 455, 10, 960, 540, hWnd, (HMENU)ID_CANVAS_VIEW, NULL, NULL);
@@ -1800,6 +2079,12 @@ static LRESULT CALLBACK DebugWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
                 execute_test_click();
             } else if (id == ID_BTN_TEST_HP) {
                 execute_hp_test();
+            } else if (id == ID_BTN_SAVE_HP) {
+                save_hp_config_to_json();
+            } else if (id == ID_BTN_APPLY_HP_C1) {
+                apply_picked_color_to_hp1();
+            } else if (id == ID_BTN_APPLY_HP_C2) {
+                apply_picked_color_to_hp2();
             } else if (id == ID_BTN_DETECT_MAP) {
                 execute_map_detection();
             } else if (id == ID_CB_POPUP_TYPE && HIWORD(wParam) == CBN_SELCHANGE) {
