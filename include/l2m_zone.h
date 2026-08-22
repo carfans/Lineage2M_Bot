@@ -29,34 +29,49 @@ typedef struct {
     int32_t width;              /* 地图框扫描 ROI 宽度 */
     int32_t height;             /* 地图框扫描 ROI 高度 */
 
-    /* 区域状态徽章/文字子区域相对偏移 */
-    int32_t badge_offset_x;     /* 相对地图框的 X 偏移 */
-    int32_t badge_offset_y;     /* 相对地图框的 Y 偏移 */
-    int32_t badge_width;        /* 区域状态检测子区域宽度 */
-    int32_t badge_height;       /* 区域状态检测子区域高度 */
+    /* 区域状态徽章/文字子区域相对偏移 (默认位于小地图左上角) */
+    int32_t badge_offset_x;     /* 相对地图框的 X 偏移 (默认 2) */
+    int32_t badge_offset_y;     /* 相对地图框的 Y 偏移 (默认 2) */
+    int32_t badge_width;        /* 区域状态检测子区域宽度 (默认 65) */
+    int32_t badge_height;       /* 区域状态检测子区域高度 (默认 30) */
 
     /* 判据阈值参数 */
-    float min_green_ratio;      /* 判定为安全区域的绿色像素最小占比 (默认 0.015) */
-    float min_red_ratio;        /* 判定为战斗区域的红色像素最小占比 (默认 0.020) */
-    float min_white_ratio;      /* 判定为普通野外区域的白色像素最小占比 (默认 0.015) */
+    float min_blue_ratio;       /* 判定为安全区域 (Safe) 的蓝色像素最小占比 (默认 0.015) */
+    float min_brown_ratio;      /* 判定为普通区域 (Common) 的浅咖色像素最小占比 (默认 0.015) */
+    float min_green_ratio;      /* 备用绿色像素最小占比 (兼容历史) */
+    float min_red_ratio;        /* 判定为不可记忆/战斗区域的红色网格像素最小占比 (默认 0.020) */
+    float min_white_ratio;      /* 备用白色像素最小占比 (兼容历史) */
     float max_bg_brightness;    /* 地图暗底最大平均亮度阈值 (默认 140.0) */
+
+    /* 中心玩家指示器与朝向检测 */
+    bool detect_player_indicator; /* 是否检测正中间橙色圆圈与白色朝向箭头 (默认 true) */
 } L2MMapZoneConfig;
 
 /* 地图框与区域检测完整结果 */
 typedef struct {
     bool detected;              /* 是否成功检测到地图框 */
     L2MRect map_rect;           /* 地图框在全局画面中的绝对矩形区域 */
-    L2MZoneType zone_type;      /* 判定出的区域类型 */
+    L2MZoneType zone_type;      /* 判定出的区域类型 (SAFETY / NORMAL / COMBAT) */
     float confidence;           /* 综合置信度得分 (0.0 ~ 100.0) */
 
     /* 特征色彩统计指标 */
-    float green_ratio;          /* 区域标签内绿色安全像素占比 (0.0 ~ 1.0) */
-    float white_gray_ratio;     /* 区域标签内白/灰色普通野外像素占比 (0.0 ~ 1.0) */
-    float red_ratio;            /* 区域标签内红色危险战斗像素占比 (0.0 ~ 1.0) */
+    float blue_safe_ratio;      /* 左上角蓝色 Safe 安全像素占比 (0.0 ~ 1.0) */
+    float brown_common_ratio;   /* 左上角浅咖色 Common 普通像素占比 (0.0 ~ 1.0) */
+    float green_ratio;          /* 备用绿色安全像素占比 (兼容历史) */
+    float white_gray_ratio;     /* 备用白/灰色普通野外像素占比 (兼容历史) */
+    float red_ratio;            /* 红色像素总占比 (0.0 ~ 1.0) */
+    float red_grid_ratio;       /* 红色不可记忆网格像素占比 (0.0 ~ 1.0) */
+    bool has_red_grid;          /* 是否存在不可记忆红色网格 */
     float mean_brightness;      /* 地图区域整体平均亮度 */
     L2MRGB badge_mean_rgb;      /* 区域标识/文字局部的实测平均 RGB */
 
-    char zone_name[32];         /* 区域中文名称 ("安全区域(村庄)", "普通区域(野外)", "危险区域(PVP)") */
+    /* 中心玩家定位与视角朝向 */
+    bool has_player_indicator;  /* 是否成功检测到正中间玩家指示器 */
+    L2MPoint player_center_pos; /* 玩家在全局 960x540 坐标系下的绝对中心坐标 */
+    float player_heading_angle; /* 玩家当前朝向角度 (0.0° ~ 360.0°，正东 0° / 正北 90° / 正西 180° / 正南 270°) */
+    bool has_view_cone;         /* 是否检测到扇形橙色渐变视角范围 */
+
+    char zone_name[64];         /* 区域中文名称 ("安全区域(Safe)", "普通区域(Common)", "不可记忆区域(红网格)") */
     char desc[128];             /* 详细诊断说明 */
 } L2MMapBoxResult;
 

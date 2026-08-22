@@ -8,13 +8,20 @@
 #include <string.h>
 #include <wchar.h>
 #include <time.h>
+#include <math.h>
 #include <windows.h>
 #include <commdlg.h>
 #include "../../include/l2m_gui.h"
 #include "../../include/l2m_cbt.h"
 #include "../../include/l2m_zone.h"
+#include "../../include/l2m_window_profile.h"
 
 #ifdef _WIN32
+
+#define ID_CB_WIN_PROFILE    1040
+#define ID_BTN_REFRESH_WINS  1041
+#define ID_BTN_ALIGN_4WINS   1042
+#define ID_BTN_SAVE_WIN_PROF 1043
 
 #define ID_BTN_CAPTURE       1001
 #define ID_BTN_DETECT_POPUP  1002
@@ -73,6 +80,14 @@ static HWND g_hCbtKeyTxt = NULL;
 static HWND g_hCbtPosTxt = NULL;
 static HWND g_hCbtRgbTxt = NULL;
 static HWND g_hCbtTolTxt = NULL;
+
+/* 多开窗口与角色配置管理句柄与状态 */
+static HWND g_hWindowProfileCb = NULL;
+static L2MWindowProfileList g_win_profile_list;
+static L2MWindowInstance g_detected_game_windows[MAX_GAME_WINDOWS];
+static int32_t g_detected_game_window_count = 0;
+static int32_t g_current_selected_win_idx = 0;
+static L2MWindowProfile g_current_active_profile;
 
 static L2MCbtConfig g_current_cbt_cfg;
 
@@ -731,13 +746,13 @@ static void on_paint_canvas(HWND hWnd) {
             DeleteObject(hPenCross);
         }
 
-        /* 绘制地图框与区域高亮叠加层 */
+        /* 绘制地图框与区域高亮叠加层 (支持蓝色Safe、浅咖色Common、红色网格与中心玩家朝向) */
         if (g_has_map_overlay && g_last_map_result.detected) {
-            COLORREF zone_col = RGB(255, 204, 0);
+            COLORREF zone_col = RGB(210, 166, 121); /* 普通区域 Common: 浅咖色/暖褐色 */
             if (g_last_map_result.zone_type == L2M_ZONE_SAFETY) {
-                zone_col = RGB(0, 255, 128); /* 安全区域：高亮绿 */
-            } else if (g_last_map_result.zone_type == L2M_ZONE_COMBAT) {
-                zone_col = RGB(255, 48, 48);  /* 战斗区域：高亮红 */
+                zone_col = RGB(0, 191, 255); /* 安全区域 Safe: 高亮天蓝色 */
+            } else if (g_last_map_result.zone_type == L2M_ZONE_COMBAT || g_last_map_result.has_red_grid) {
+                zone_col = RGB(255, 48, 48);  /* 不可记忆/战斗区域: 高亮鲜红色 */
             }
 
             HPEN hPenMap = CreatePen(PS_SOLID, 2, zone_col);
@@ -751,12 +766,59 @@ static void on_paint_canvas(HWND hWnd) {
 
             Rectangle(hdcMem, mx, my, mx + mw, my + mh);
 
+            /* 若存在不可记忆红色网格，在地图内部绘制红色虚线对角示意 */
+            if (g_last_map_result.has_red_grid) {
+                HPEN hPenGrid = CreatePen(PS_DOT, 1, RGB(255, 60, 60));
+                SelectObject(hdcMem, hPenGrid);
+                MoveToEx(hdcMem, mx, my, NULL); LineTo(hdcMem, mx + mw, my + mh);
+                MoveToEx(hdcMem, mx + mw, my, NULL); LineTo(hdcMem, mx, my + mh);
+                DeleteObject(hPenGrid);
+            }
+
+            /* 若检测到玩家中心指示器，绘制橙色光圈与视角朝向线 */
+            if (g_last_map_result.has_player_indicator) {
+                int pcx = (int)(g_last_map_result.player_center_pos.x * scale_x);
+                int pcy = (int)(g_last_map_result.player_center_pos.y * scale_y);
+
+                /* 橙色圆环 */
+                HPEN hPenOrange = CreatePen(PS_SOLID, 2, RGB(255, 140, 0));
+                SelectObject(hdcMem, hPenOrange);
+                Ellipse(hdcMem, pcx - 5, pcy - 5, pcx + 6, pcy + 6);
+                DeleteObject(hPenOrange);
+
+                /* 白色中心十字准星 */
+                HPEN hPenWhite = CreatePen(PS_SOLID, 1, RGB(255, 255, 255));
+                SelectObject(hdcMem, hPenWhite);
+                MoveToEx(hdcMem, pcx - 4, pcy, NULL); LineTo(hdcMem, pcx + 5, pcy);
+                MoveToEx(hdcMem, pcx, pcy - 4, NULL); LineTo(hdcMem, pcx, pcy + 5);
+                DeleteObject(hPenWhite);
+
+                /* 若有视角朝向角度，绘制视角引导线 (Heading Ray) */
+                if (g_last_map_result.has_view_cone) {
+                    float rad = (90.0f - g_last_map_result.player_heading_angle) * 3.14159265f / 180.0f;
+                    int ray_len = (int)(18.0f * scale_x);
+                    int ex = pcx + (int)(cosf(rad) * ray_len);
+                    int ey = pcy - (int)(sinf(rad) * ray_len);
+
+                    HPEN hPenRay = CreatePen(PS_SOLID, 2, RGB(255, 170, 0));
+                    SelectObject(hdcMem, hPenRay);
+                    MoveToEx(hdcMem, pcx, pcy, NULL);
+                    LineTo(hdcMem, ex, ey);
+                    DeleteObject(hPenRay);
+                }
+            }
+
             SetTextColor(hdcMem, zone_col);
             SetBkMode(hdcMem, TRANSPARENT);
             SelectObject(hdcMem, g_hFontBoldUI);
-            wchar_t w_tag[64];
-            swprintf(w_tag, sizeof(w_tag)/sizeof(wchar_t), L"[%hs] %.1f%%",
-                     g_last_map_result.zone_name, g_last_map_result.confidence);
+            wchar_t w_tag[128];
+            if (g_last_map_result.has_view_cone) {
+                swprintf(w_tag, sizeof(w_tag)/sizeof(wchar_t), L"[%hs] %.0f%% (朝向: %.0f°)",
+                         g_last_map_result.zone_name, g_last_map_result.confidence, g_last_map_result.player_heading_angle);
+            } else {
+                swprintf(w_tag, sizeof(w_tag)/sizeof(wchar_t), L"[%hs] %.0f%%",
+                         g_last_map_result.zone_name, g_last_map_result.confidence);
+            }
             TextOutW(hdcMem, mx + 4, my + mh + 2, w_tag, (int)wcslen(w_tag));
 
             SelectObject(hdcMem, hOldPen);
@@ -1016,31 +1078,39 @@ static void execute_map_detection(void) {
         wchar_t w_desc[256] = {0};
         utf8_to_wide(res.desc, w_desc, 256);
 
-        wchar_t zone_type_name[64] = L"普通区域(野外)";
+        wchar_t zone_type_name[64] = L"🌾 普通区域(Common浅咖色单词)";
         if (res.zone_type == L2M_ZONE_SAFETY) {
-            wcscpy_s(zone_type_name, 64, L"🛡️ 安全区域(村庄/城镇/和平区)");
-        } else if (res.zone_type == L2M_ZONE_COMBAT) {
-            wcscpy_s(zone_type_name, 64, L"⚔️ 自由战斗区域(PVP/攻城)");
-        } else {
-            wcscpy_s(zone_type_name, 64, L"🌾 普通区域(野外刷怪/常规战斗)");
+            wcscpy_s(zone_type_name, 64, L"🛡️ 安全区域(Safe蓝色单词)");
+        } else if (res.zone_type == L2M_ZONE_COMBAT || res.has_red_grid) {
+            wcscpy_s(zone_type_name, 64, res.has_red_grid ? L"⚔️ 不可记忆区域(红色网格)" : L"⚔️ 自由战斗区域(Combat/PVP)");
+        }
+
+        wchar_t player_tip[256] = L"未锁定中心指示器";
+        if (res.has_player_indicator) {
+            if (res.has_view_cone) {
+                swprintf(player_tip, sizeof(player_tip)/sizeof(wchar_t),
+                         L"已锁定中心玩家: (%d, %d) | 朝向视角: %.1f° (正北为0°)",
+                         res.player_center_pos.x, res.player_center_pos.y, res.player_heading_angle);
+            } else {
+                swprintf(player_tip, sizeof(player_tip)/sizeof(wchar_t),
+                         L"已锁定中心玩家: (%d, %d) | 视角扇形检测中",
+                         res.player_center_pos.x, res.player_center_pos.y);
+            }
         }
 
         swprintf(log_buf, sizeof(log_buf)/sizeof(wchar_t),
-                 L"🗺️ 成功定位左上角地图框: (%d, %d, %d, %d)\r\n"
-                 L"🛡️ 区域类型判定: 【%ls】(置信度: %.1f分)\r\n"
-                 L"📊 色彩空间统计: 绿色安全占比 %.1f%% | 普通野外占比 %.1f%% | 红色战斗占比 %.1f%%\r\n"
-                 L"🎨 区域状态标识RGB: (%d, %d, %d) | 区域平均亮度: %.1f\r\n"
-                 L"⚙️ JSON配置参数: ROI=(%d,%d,%d,%d) 子ROI=(%d,%d,%d,%d) 安全门限=%.1f%%\r\n"
+                 L"🗺️ 成功定位左上角小地图: 深灰半透雷达 (%d, %d, %d, %d)\r\n"
+                 L"🛡️ 区域类型判定: 【%ls】(置信度: %.1f分)%ls\r\n"
+                 L"📊 标题指示词统计: Safe蓝色文字=%.1f%% | Common浅咖文字=%.1f%% | 红网格=%.1f%%\r\n"
+                 L"🎯 玩家朝向定位: %ls\r\n"
+                 L"🎨 标题前缀RGB: (%d, %d, %d) | 地图底板均值亮度: %.1f\r\n"
                  L"📝 诊断说明: %ls",
                  res.map_rect.x, res.map_rect.y, res.map_rect.width, res.map_rect.height,
                  zone_type_name, res.confidence,
-                 res.green_ratio * 100.0f, res.white_gray_ratio * 100.0f, res.red_ratio * 100.0f,
+                 res.has_red_grid ? L" ⚠️[不可记忆区域]" : L"",
+                 res.blue_safe_ratio * 100.0f, res.brown_common_ratio * 100.0f, res.red_grid_ratio * 100.0f,
+                 player_tip,
                  res.badge_mean_rgb.r, res.badge_mean_rgb.g, res.badge_mean_rgb.b, res.mean_brightness,
-                 g_current_cbt_cfg.map_zone_cfg.x, g_current_cbt_cfg.map_zone_cfg.y,
-                 g_current_cbt_cfg.map_zone_cfg.width, g_current_cbt_cfg.map_zone_cfg.height,
-                 g_current_cbt_cfg.map_zone_cfg.badge_offset_x, g_current_cbt_cfg.map_zone_cfg.badge_offset_y,
-                 g_current_cbt_cfg.map_zone_cfg.badge_width, g_current_cbt_cfg.map_zone_cfg.badge_height,
-                 g_current_cbt_cfg.map_zone_cfg.min_green_ratio * 100.0f,
                  w_desc);
     } else {
         g_has_map_overlay = false;
@@ -1053,35 +1123,184 @@ static void execute_map_detection(void) {
     if (g_hCanvas) InvalidateRect(g_hCanvas, NULL, FALSE);
 }
 
-/* 自动查找或绑定游戏窗口句柄 */
-static BOOL CALLBACK EnumFindGameWndProc(HWND hwnd, LPARAM lParam) {
-    if (!IsWindowVisible(hwnd)) return TRUE;
-    wchar_t title[256];
-    GetWindowTextW(hwnd, title, sizeof(title)/sizeof(wchar_t));
-    if (wcslen(title) == 0) return TRUE;
+/* 刷新多开游戏窗口与角色配置下拉列表 */
+static void refresh_game_windows_and_profiles_ui(void) {
+    if (!g_hWindowProfileCb) return;
+    SendMessageW(g_hWindowProfileCb, CB_RESETCONTENT, 0, 0);
 
-    RECT rc;
-    GetClientRect(hwnd, &rc);
-    int w = rc.right - rc.left;
-    int h = rc.bottom - rc.top;
+    /* 1. 加载 window_profiles.json */
+    l2m_window_profiles_load(NULL, &g_win_profile_list);
 
-    if (wcsstr(title, L"Lineage2M") || wcsstr(title, L"PURPLE") || wcsstr(title, L"L2M") ||
-        (w >= 900 && w <= 1000 && h >= 500 && h <= 600)) {
-        HWND* pFound = (HWND*)lParam;
-        *pFound = hwnd;
-        return FALSE; /* 停止枚举 */
+    /* 2. 枚举当前系统中的所有 Lineage2M / PURPLE 窗口 */
+    l2m_enum_game_windows(g_detected_game_windows, MAX_GAME_WINDOWS, &g_detected_game_window_count);
+
+    if (g_detected_game_window_count == 0) {
+        SendMessageW(g_hWindowProfileCb, CB_ADDSTRING, 0, (LPARAM)L"⚠️ [未检测到游戏窗口] 使用离线模拟画面");
+        SendMessageW(g_hWindowProfileCb, CB_SETCURSEL, 0, 0);
+        g_hTargetGameWnd = NULL;
+        return;
     }
-    return TRUE;
+
+    for (int i = 0; i < g_detected_game_window_count; i++) {
+        const L2MWindowInstance* win = &g_detected_game_windows[i];
+        L2MWindowProfile matched_prof;
+        memset(&matched_prof, 0, sizeof(matched_prof));
+        bool has_matched = l2m_window_profile_match(&g_win_profile_list, win, i, &matched_prof);
+
+        wchar_t item_text[512] = {0};
+        wchar_t w_char_name[64] = L"未命名角色";
+        wchar_t w_title[128] = {0};
+
+        if (has_matched && matched_prof.character_name[0]) {
+            MultiByteToWideChar(CP_UTF8, 0, matched_prof.character_name, -1, w_char_name, 64);
+        }
+        MultiByteToWideChar(CP_UTF8, 0, win->window_title, -1, w_title, 128);
+
+        const char* reg_str = (has_matched && matched_prof.region[0]) ? matched_prof.region : "EN";
+
+        swprintf(item_text, sizeof(item_text)/sizeof(wchar_t),
+                 L"[#%d] 角色:%ls (%hs) | %dx%d | HWND:0x%X",
+                 i + 1, w_char_name, reg_str, win->client_width, win->client_height, (unsigned int)(uintptr_t)win->hwnd);
+
+        SendMessageW(g_hWindowProfileCb, CB_ADDSTRING, 0, (LPARAM)item_text);
+    }
+
+    if (g_current_selected_win_idx >= g_detected_game_window_count) {
+        g_current_selected_win_idx = 0;
+    }
+
+    SendMessageW(g_hWindowProfileCb, CB_SETCURSEL, g_current_selected_win_idx, 0);
+    g_hTargetGameWnd = g_detected_game_windows[g_current_selected_win_idx].hwnd;
+    update_debug_window_title();
+}
+
+/* 响应选择游戏窗口/角色切换 */
+static void on_window_profile_selected(int idx) {
+    if (idx < 0 || idx >= g_detected_game_window_count) {
+        g_hTargetGameWnd = NULL;
+        return;
+    }
+
+    g_current_selected_win_idx = idx;
+    const L2MWindowInstance* win = &g_detected_game_windows[idx];
+    g_hTargetGameWnd = win->hwnd;
+
+    /* 获取匹配的角色与语言配置 */
+    L2MWindowProfile matched_prof;
+    memset(&matched_prof, 0, sizeof(matched_prof));
+    bool has_matched = l2m_window_profile_match(&g_win_profile_list, win, idx, &matched_prof);
+
+    const char* active_region = "EN";
+    char matched_char_name[64] = "Andyusa";
+
+    if (has_matched) {
+        g_current_active_profile = matched_prof;
+        if (matched_prof.character_name[0]) {
+            snprintf(matched_char_name, sizeof(matched_char_name), "%s", matched_prof.character_name);
+        }
+        if (matched_prof.region[0]) {
+            active_region = matched_prof.region;
+        }
+    }
+
+    /* 优先从 data/id/<name>.json 加载该角色的专属语言绑定 */
+    L2MIdConfig id_cfg;
+    if (l2m_id_profile_load(matched_char_name, &id_cfg) ||
+        l2m_id_profile_load(win->window_title, &id_cfg)) {
+        if (id_cfg.region[0]) {
+            active_region = id_cfg.region;
+        }
+    }
+
+    /* 同步切换语言下拉框与当前 CBT 特征配置 */
+    if (g_hCbtRegionCb) {
+        int target_sel = 0;
+        if (strcmp(active_region, "EN") == 0) target_sel = 1;
+        else if (strcmp(active_region, "JP") == 0) target_sel = 2;
+        else if (strcmp(active_region, "RU") == 0) target_sel = 3;
+        SendMessageW(g_hCbtRegionCb, CB_SETCURSEL, target_sel, 0);
+        switch_cbt_region(active_region);
+    }
+
+    update_debug_window_title();
+    capture_game_screen();
+
+    wchar_t tip[512];
+    wchar_t w_cname[64] = L"默认角色";
+    MultiByteToWideChar(CP_UTF8, 0, matched_char_name, -1, w_cname, 64);
+
+    swprintf(tip, sizeof(tip)/sizeof(wchar_t),
+             L"🎮 已成功绑定游戏窗口 [#%d] (HWND: 0x%X)\r\n"
+             L"👤 角色配置: 【data/id/%hs.json】(角色: %ls)\r\n"
+             L"🌐 语言地区: 【%hs】 -> 对应 CBT 库: data/cbt/%hs.json",
+             idx + 1, (unsigned int)(uintptr_t)win->hwnd,
+             matched_char_name, w_cname,
+             active_region, active_region);
+    SetWindowTextW(g_hStatusText, tip);
+}
+
+/* 执行四开 2x2 网格窗口自动对齐 */
+static void execute_align_4_windows(void) {
+    int32_t count = 0;
+    if (l2m_align_game_windows(L2M_ALIGN_GRID_2X2, 960, 540, &count)) {
+        refresh_game_windows_and_profiles_ui();
+        wchar_t msg[512];
+        swprintf(msg, sizeof(msg)/sizeof(wchar_t),
+                 L"🪟 已成功执行【2x2 四开网格对齐】！\r\n"
+                 L"已自动排列 %d 个游戏窗口至标准 960x540 分辨率，消除所有重叠与边框遮挡。", count);
+        SetWindowTextW(g_hStatusText, msg);
+        MessageBoxW(g_hDebugWnd, msg, L"四开对齐完成", MB_OK | MB_ICONINFORMATION);
+    } else {
+        MessageBoxW(g_hDebugWnd, L"未检测到运行中的游戏窗口，无法执行对齐！", L"提示", MB_OK | MB_ICONWARNING);
+    }
+}
+
+/* 手动保存当前窗口名称对应的语言与角色配置文件 (同步写入 data/id/<name>.json) */
+static void save_current_window_profile(void) {
+    if (g_detected_game_window_count <= 0 || g_current_selected_win_idx >= g_detected_game_window_count) {
+        MessageBoxW(g_hDebugWnd, L"请先在上方下拉框选择有效的目标游戏窗口！", L"提示", MB_OK | MB_ICONWARNING);
+        return;
+    }
+
+    const L2MWindowInstance* win = &g_detected_game_windows[g_current_selected_win_idx];
+
+    /* 获取当前手动选择的语言地区 */
+    int r_idx = (int)SendMessageW(g_hCbtRegionCb, CB_GETCURSEL, 0, 0);
+    const char* rlist[] = {"CN", "EN", "JP", "RU"};
+    const char* sel_region = (r_idx >= 0 && r_idx < 4) ? rlist[r_idx] : "CN";
+
+    /* 使用当前角色名称或窗口名称 */
+    const char* char_name = (g_current_active_profile.character_name[0]) ? g_current_active_profile.character_name : win->window_title;
+
+    /* 1. 保存到 data/window_profiles.json */
+    l2m_save_window_profile_by_title(win->window_title, char_name, sel_region, "用户手动绑定保存");
+
+    /* 2. 同步保存/更新至 data/id/<char_name>.json */
+    bool ok_id = l2m_id_profile_set_region(char_name, sel_region);
+
+    refresh_game_windows_and_profiles_ui();
+    wchar_t msg[512];
+    wchar_t w_title[128] = {0};
+    MultiByteToWideChar(CP_UTF8, 0, win->window_title, -1, w_title, 128);
+
+    swprintf(msg, sizeof(msg)/sizeof(wchar_t),
+             L"💾 窗口【%ls】的语言配置已成功保存！\r\n"
+             L"📁 配置文件: 【data/id/%hs.json】\r\n"
+             L"🌐 绑定语言: 【%hs】 -> 对应 CBT 库: data/cbt/%hs.json\r\n"
+             L"%ls",
+             w_title, char_name, sel_region, sel_region,
+             ok_id ? L"✅ 已成功更新 data/id 角色配置文件！" : L"⚠️ 配置已保存。");
+    SetWindowTextW(g_hStatusText, msg);
+    MessageBoxW(g_hDebugWnd, msg, L"角色语言配置保存成功", MB_OK | MB_ICONINFORMATION);
 }
 
 static HWND get_active_or_first_game_window(void) {
     if (g_hTargetGameWnd && IsWindow(g_hTargetGameWnd)) return g_hTargetGameWnd;
-    HWND found = NULL;
-    EnumWindows(EnumFindGameWndProc, (LPARAM)&found);
-    if (found) {
-        g_hTargetGameWnd = found;
-        update_debug_window_title();
+    if (g_detected_game_window_count > 0 && g_detected_game_windows[0].hwnd && IsWindow(g_detected_game_windows[0].hwnd)) {
+        g_hTargetGameWnd = g_detected_game_windows[0].hwnd;
+        return g_hTargetGameWnd;
     }
+    refresh_game_windows_and_profiles_ui();
     return g_hTargetGameWnd;
 }
 
@@ -1457,90 +1676,113 @@ static LRESULT CALLBACK DebugWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
             wcZ.lpszClassName = L"L2M_Zoom_View";
             RegisterClassW(&wcZ);
 
+            /* ===== 区域 0: 多开游戏窗口与角色配置选择 ===== */
+            CreateWindowW(L"STATIC", L"🎮 窗口/角色:", WS_CHILD | WS_VISIBLE, 15, 6, 75, 20, hWnd, NULL, NULL, NULL);
+            g_hWindowProfileCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 92, 3, 195, 250, hWnd, (HMENU)ID_CB_WIN_PROFILE, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🔄 刷新", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 292, 2, 60, 25, hWnd, (HMENU)ID_BTN_REFRESH_WINS, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🪟 四开对齐", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 356, 2, 84, 25, hWnd, (HMENU)ID_BTN_ALIGN_4WINS, NULL, NULL);
+
             /* ===== 区域 1: 命名弹窗管理与截图控制 ===== */
-            CreateWindowW(L"STATIC", L"弹窗选择:", WS_CHILD | WS_VISIBLE, 15, 8, 60, 20, hWnd, NULL, NULL, NULL);
-            g_hPopupTypeCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 75, 5, 210, 250, hWnd, (HMENU)ID_CB_POPUP_TYPE, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"➕ 新建", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 290, 4, 70, 25, hWnd, (HMENU)ID_BTN_NEW_POPUP, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"🗑️ 删除", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 365, 4, 75, 25, hWnd, (HMENU)ID_BTN_DEL_POPUP, NULL, NULL);
+            CreateWindowW(L"STATIC", L"弹窗选择:", WS_CHILD | WS_VISIBLE, 15, 34, 60, 20, hWnd, NULL, NULL, NULL);
+            g_hPopupTypeCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 75, 31, 210, 250, hWnd, (HMENU)ID_CB_POPUP_TYPE, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"➕ 新建", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 290, 30, 70, 25, hWnd, (HMENU)ID_BTN_NEW_POPUP, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🗑️ 删除", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 365, 30, 75, 25, hWnd, (HMENU)ID_BTN_DEL_POPUP, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"弹窗标识:", WS_CHILD | WS_VISIBLE, 15, 34, 60, 20, hWnd, NULL, NULL, NULL);
-            g_hPopupNameTxt = CreateWindowW(L"EDIT", L"center_modal", WS_CHILD | WS_VISIBLE | WS_BORDER, 75, 32, 150, 22, hWnd, (HMENU)ID_TXT_POPUP_NAME, NULL, NULL);
-            CreateWindowW(L"STATIC", L"描述:", WS_CHILD | WS_VISIBLE, 232, 34, 35, 20, hWnd, NULL, NULL, NULL);
-            g_hPopupDescTxt = CreateWindowW(L"EDIT", L"中间标准模态确认弹窗", WS_CHILD | WS_VISIBLE | WS_BORDER, 270, 32, 170, 22, hWnd, (HMENU)ID_TXT_POPUP_DESC, NULL, NULL);
+            CreateWindowW(L"STATIC", L"弹窗标识:", WS_CHILD | WS_VISIBLE, 15, 60, 60, 20, hWnd, NULL, NULL, NULL);
+            g_hPopupNameTxt = CreateWindowW(L"EDIT", L"center_modal", WS_CHILD | WS_VISIBLE | WS_BORDER, 75, 58, 150, 22, hWnd, (HMENU)ID_TXT_POPUP_NAME, NULL, NULL);
+            CreateWindowW(L"STATIC", L"描述:", WS_CHILD | WS_VISIBLE, 232, 60, 35, 20, hWnd, NULL, NULL, NULL);
+            g_hPopupDescTxt = CreateWindowW(L"EDIT", L"中间标准模态确认弹窗", WS_CHILD | WS_VISIBLE | WS_BORDER, 270, 58, 170, 22, hWnd, (HMENU)ID_TXT_POPUP_DESC, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"扫描 ROI:", WS_CHILD | WS_VISIBLE, 15, 59, 60, 20, hWnd, NULL, NULL, NULL);
-            g_hPopupRectTxt = CreateWindowW(L"EDIT", L"280, 150, 400, 240", WS_CHILD | WS_VISIBLE | WS_BORDER, 75, 57, 130, 22, hWnd, (HMENU)ID_TXT_POPUP_RECT, NULL, NULL);
-            CreateWindowW(L"STATIC", L"关联CBT:", WS_CHILD | WS_VISIBLE, 212, 59, 55, 20, hWnd, NULL, NULL, NULL);
-            g_hPopupLinkedCbtCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 270, 56, 170, 250, hWnd, (HMENU)ID_CB_POPUP_LINK_CBT, NULL, NULL);
+            CreateWindowW(L"STATIC", L"扫描 ROI:", WS_CHILD | WS_VISIBLE, 15, 85, 60, 20, hWnd, NULL, NULL, NULL);
+            g_hPopupRectTxt = CreateWindowW(L"EDIT", L"280, 150, 400, 240", WS_CHILD | WS_VISIBLE | WS_BORDER, 75, 83, 130, 22, hWnd, (HMENU)ID_TXT_POPUP_RECT, NULL, NULL);
+            CreateWindowW(L"STATIC", L"关联CBT:", WS_CHILD | WS_VISIBLE, 212, 85, 55, 20, hWnd, NULL, NULL, NULL);
+            g_hPopupLinkedCbtCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 270, 82, 170, 250, hWnd, (HMENU)ID_CB_POPUP_LINK_CBT, NULL, NULL);
 
-            CreateWindowW(L"BUTTON", L"🔍 识别弹窗", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 84, 100, 25, hWnd, (HMENU)ID_BTN_DETECT_POPUP, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"💾 保存/更新", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 120, 84, 105, 25, hWnd, (HMENU)ID_BTN_SAVE_POPUP, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"🖱️ 模拟关闭", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 230, 84, 100, 25, hWnd, (HMENU)ID_BTN_TEST_CLICK, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"📸 捕获画面", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 335, 84, 105, 25, hWnd, (HMENU)ID_BTN_CAPTURE, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🔍 识别弹窗", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 108, 100, 25, hWnd, (HMENU)ID_BTN_DETECT_POPUP, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"💾 保存/更新", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 120, 108, 105, 25, hWnd, (HMENU)ID_BTN_SAVE_POPUP, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🖱️ 模拟关闭", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 230, 108, 100, 25, hWnd, (HMENU)ID_BTN_TEST_CLICK, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"📸 捕获画面", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 335, 108, 105, 25, hWnd, (HMENU)ID_BTN_CAPTURE, NULL, NULL);
 
-            CreateWindowW(L"BUTTON", L"💾 保存当前截图", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 112, 210, 25, hWnd, (HMENU)ID_BTN_SAVE_IMAGE, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"📂 载入本地图片", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 230, 112, 210, 25, hWnd, (HMENU)ID_BTN_LOAD_IMAGE, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"💾 保存当前截图", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 136, 210, 25, hWnd, (HMENU)ID_BTN_SAVE_IMAGE, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"📂 载入本地图片", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 230, 136, 210, 25, hWnd, (HMENU)ID_BTN_LOAD_IMAGE, NULL, NULL);
 
             /* ===== 区域 2: 多语言 CBT 采样点管理 ===== */
-            CreateWindowW(L"STATIC", L"🌐 语言:", WS_CHILD | WS_VISIBLE, 15, 144, 45, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtRegionCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 60, 141, 60, 200, hWnd, (HMENU)ID_CB_CBT_REGION, NULL, NULL);
+            CreateWindowW(L"STATIC", L"🌐 语言:", WS_CHILD | WS_VISIBLE, 15, 168, 45, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtRegionCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 60, 165, 55, 200, hWnd, (HMENU)ID_CB_CBT_REGION, NULL, NULL);
             SendMessageW(g_hCbtRegionCb, CB_ADDSTRING, 0, (LPARAM)L"CN");
             SendMessageW(g_hCbtRegionCb, CB_ADDSTRING, 0, (LPARAM)L"EN");
             SendMessageW(g_hCbtRegionCb, CB_ADDSTRING, 0, (LPARAM)L"JP");
             SendMessageW(g_hCbtRegionCb, CB_ADDSTRING, 0, (LPARAM)L"RU");
             SendMessageW(g_hCbtRegionCb, CB_SETCURSEL, 0, 0);
 
-            CreateWindowW(L"STATIC", L"🎯 CBT点位:", WS_CHILD | WS_VISIBLE, 125, 144, 70, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtPointsCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 195, 141, 245, 450, hWnd, (HMENU)ID_CB_CBT_POINTS, NULL, NULL);
+            CreateWindowW(L"STATIC", L"🎯 CBT点位:", WS_CHILD | WS_VISIBLE, 120, 168, 65, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtPointsCb = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 185, 165, 162, 450, hWnd, (HMENU)ID_CB_CBT_POINTS, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"💾 绑定保存", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 352, 164, 88, 25, hWnd, (HMENU)ID_BTN_SAVE_WIN_PROF, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"点位Key:", WS_CHILD | WS_VISIBLE, 15, 169, 58, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtKeyTxt = CreateWindowW(L"EDIT", L"home_scroll_button_no_energomode", WS_CHILD | WS_VISIBLE | WS_BORDER, 75, 167, 365, 22, hWnd, (HMENU)ID_TXT_CBT_KEY, NULL, NULL);
+            CreateWindowW(L"STATIC", L"点位Key:", WS_CHILD | WS_VISIBLE, 15, 193, 58, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtKeyTxt = CreateWindowW(L"EDIT", L"home_scroll_button_no_energomode", WS_CHILD | WS_VISIBLE | WS_BORDER, 75, 191, 365, 22, hWnd, (HMENU)ID_TXT_CBT_KEY, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"坐标:", WS_CHILD | WS_VISIBLE, 15, 194, 35, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtPosTxt = CreateWindowW(L"EDIT", L"217, 487", WS_CHILD | WS_VISIBLE | WS_BORDER, 50, 192, 75, 22, hWnd, (HMENU)ID_TXT_CBT_POS, NULL, NULL);
+            CreateWindowW(L"STATIC", L"坐标:", WS_CHILD | WS_VISIBLE, 15, 218, 35, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtPosTxt = CreateWindowW(L"EDIT", L"217, 487", WS_CHILD | WS_VISIBLE | WS_BORDER, 50, 216, 75, 22, hWnd, (HMENU)ID_TXT_CBT_POS, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"RGB:", WS_CHILD | WS_VISIBLE, 130, 194, 30, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtRgbTxt = CreateWindowW(L"EDIT", L"174, 149, 130", WS_CHILD | WS_VISIBLE | WS_BORDER, 162, 192, 98, 22, hWnd, (HMENU)ID_TXT_CBT_RGB, NULL, NULL);
+            CreateWindowW(L"STATIC", L"RGB:", WS_CHILD | WS_VISIBLE, 130, 218, 30, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtRgbTxt = CreateWindowW(L"EDIT", L"174, 149, 130", WS_CHILD | WS_VISIBLE | WS_BORDER, 162, 216, 98, 22, hWnd, (HMENU)ID_TXT_CBT_RGB, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"容差:", WS_CHILD | WS_VISIBLE, 265, 194, 35, 20, hWnd, NULL, NULL, NULL);
-            g_hCbtTolTxt = CreateWindowW(L"EDIT", L"12", WS_CHILD | WS_VISIBLE | WS_BORDER, 300, 192, 38, 22, hWnd, (HMENU)ID_TXT_CBT_TOL, NULL, NULL);
+            CreateWindowW(L"STATIC", L"容差:", WS_CHILD | WS_VISIBLE, 265, 218, 35, 20, hWnd, NULL, NULL, NULL);
+            g_hCbtTolTxt = CreateWindowW(L"EDIT", L"12", WS_CHILD | WS_VISIBLE | WS_BORDER, 300, 216, 38, 22, hWnd, (HMENU)ID_TXT_CBT_TOL, NULL, NULL);
 
-            CreateWindowW(L"BUTTON", L"🩸血条", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 342, 190, 48, 25, hWnd, (HMENU)ID_BTN_TEST_HP, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"🗺️地图", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 393, 190, 48, 25, hWnd, (HMENU)ID_BTN_DETECT_MAP, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🩸血条", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 342, 214, 48, 25, hWnd, (HMENU)ID_BTN_TEST_HP, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🗺️地图", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 393, 214, 48, 25, hWnd, (HMENU)ID_BTN_DETECT_MAP, NULL, NULL);
 
-            CreateWindowW(L"BUTTON", L"🎯 填入拾取", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 218, 100, 25, hWnd, (HMENU)ID_BTN_CBT_APPLY_PT, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"🔬 比对测试", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 120, 218, 100, 25, hWnd, (HMENU)ID_BTN_CBT_TEST_PT, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"💾 保存特征", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 225, 218, 105, 25, hWnd, (HMENU)ID_BTN_CBT_SAVE_JSON, NULL, NULL);
-            CreateWindowW(L"BUTTON", L"🗑️ 删除点位", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 335, 218, 105, 25, hWnd, (HMENU)ID_BTN_CBT_DEL_PT, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🎯 填入拾取", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 15, 242, 100, 25, hWnd, (HMENU)ID_BTN_CBT_APPLY_PT, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🔬 比对测试", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 120, 242, 100, 25, hWnd, (HMENU)ID_BTN_CBT_TEST_PT, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"💾 保存特征", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 225, 242, 105, 25, hWnd, (HMENU)ID_BTN_CBT_SAVE_JSON, NULL, NULL);
+            CreateWindowW(L"BUTTON", L"🗑️ 删除点位", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 335, 242, 105, 25, hWnd, (HMENU)ID_BTN_CBT_DEL_PT, NULL, NULL);
 
             /* ===== 区域 3: 采样点 11x11 像素放大镜 (110x110 像素网格完整展示) ===== */
-            g_hZoomInfoLbl = CreateWindowW(L"STATIC", L"🔍 放大镜 (10x 放大) - 采样中心: 未选择", WS_CHILD | WS_VISIBLE, 15, 248, 425, 18, hWnd, NULL, NULL, NULL);
-            g_hZoomCanvas = CreateWindowW(L"L2M_Zoom_View", L"", WS_CHILD | WS_VISIBLE | WS_BORDER, 15, 268, 112, 112, hWnd, (HMENU)ID_ZOOM_VIEW, NULL, NULL);
+            g_hZoomInfoLbl = CreateWindowW(L"STATIC", L"🔍 放大镜 (10x 放大) - 采样中心: 未选择", WS_CHILD | WS_VISIBLE, 15, 272, 425, 18, hWnd, NULL, NULL, NULL);
+            g_hZoomCanvas = CreateWindowW(L"L2M_Zoom_View", L"", WS_CHILD | WS_VISIBLE | WS_BORDER, 15, 292, 112, 112, hWnd, (HMENU)ID_ZOOM_VIEW, NULL, NULL);
 
-            g_hColorInfoLbl = CreateWindowW(L"STATIC", L"📍 鼠标取点: 点击右侧画面任意位置拾取坐标与 RGB", WS_CHILD | WS_VISIBLE, 135, 268, 305, 36, hWnd, NULL, NULL, NULL);
+            g_hColorInfoLbl = CreateWindowW(L"STATIC", L"📍 鼠标取点: 点击右侧画面任意位置拾取坐标与 RGB", WS_CHILD | WS_VISIBLE, 135, 292, 305, 36, hWnd, NULL, NULL, NULL);
 
-            CreateWindowW(L"STATIC", L"【检测与比对诊断报告】:", WS_CHILD | WS_VISIBLE, 135, 310, 200, 18, hWnd, NULL, NULL, NULL);
+            CreateWindowW(L"STATIC", L"【检测与比对诊断报告】:", WS_CHILD | WS_VISIBLE, 135, 334, 200, 18, hWnd, NULL, NULL, NULL);
 
-            /* ===== 区域 4: 诊断与状态信息框 (下移至 y=388，绝不遮挡放大镜) ===== */
-            g_hStatusText = CreateWindowW(L"EDIT", L"就绪。可进行实时画面捕获、载入本地图片、放大镜观察与特征点微调。",
+            /* ===== 区域 4: 诊断与状态信息框 ===== */
+            g_hStatusText = CreateWindowW(L"EDIT", L"就绪。可进行多开窗口切换、实时画面捕获、放大镜观察与特征微调。",
                                           WS_CHILD | WS_VISIBLE | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
-                                          15, 388, 425, 162, hWnd, (HMENU)ID_TXT_STATUS, NULL, NULL);
+                                          15, 410, 425, 160, hWnd, (HMENU)ID_TXT_STATUS, NULL, NULL);
 
             /* 右侧 960x540 大画板 (向右平移至 x=455) */
             g_hCanvas = CreateWindowW(L"L2M_Canvas_View", L"", WS_CHILD | WS_VISIBLE | WS_BORDER, 455, 10, 960, 540, hWnd, (HMENU)ID_CANVAS_VIEW, NULL, NULL);
 
             apply_debug_ui_font(hWnd, g_hFontDebugUI);
 
-            /* 初始载入 CN 语言配置 */
-            switch_cbt_region("CN");
-
-            capture_game_screen();
+            /* 初始载入窗口与多语言配置 */
+            refresh_game_windows_and_profiles_ui();
+            if (g_detected_game_window_count > 0) {
+                on_window_profile_selected(0);
+            } else {
+                switch_cbt_region("CN");
+                capture_game_screen();
+            }
             return 0;
         }
 
         case WM_COMMAND: {
             int id = LOWORD(wParam);
-            if (id == ID_BTN_CAPTURE) {
+            if (id == ID_CB_WIN_PROFILE && HIWORD(wParam) == CBN_SELCHANGE) {
+                int idx = (int)SendMessageW(g_hWindowProfileCb, CB_GETCURSEL, 0, 0);
+                on_window_profile_selected(idx);
+            } else if (id == ID_BTN_REFRESH_WINS) {
+                refresh_game_windows_and_profiles_ui();
+                if (g_detected_game_window_count > 0) {
+                    on_window_profile_selected(0);
+                }
+            } else if (id == ID_BTN_ALIGN_4WINS) {
+                execute_align_4_windows();
+            } else if (id == ID_BTN_SAVE_WIN_PROF) {
+                save_current_window_profile();
+            } else if (id == ID_BTN_CAPTURE) {
                 capture_game_screen();
             } else if (id == ID_BTN_SAVE_IMAGE) {
                 save_current_screenshot();
@@ -1640,7 +1882,7 @@ void l2m_open_debug_dialog(HWND hParentWnd, HWND hTargetGameWnd) {
     RegisterClassW(&wc);
 
     int dlg_w = 1450;
-    int dlg_h = 600;
+    int dlg_h = 630;
     int screen_w = GetSystemMetrics(SM_CXSCREEN);
     int screen_h = GetSystemMetrics(SM_CYSCREEN);
     int x = (screen_w - dlg_w) / 2;

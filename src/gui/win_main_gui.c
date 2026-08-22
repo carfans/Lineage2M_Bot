@@ -9,6 +9,7 @@
 #include <wchar.h>
 #include <time.h>
 #include "../../include/l2m_gui.h"
+#include "../../include/l2m_cbt.h"
 
 #ifdef _WIN32
 
@@ -258,13 +259,14 @@ static DWORD WINAPI MultiClientWorkerThread(LPVOID lpParam) {
             if (l2m_capture_window(c->hwnd, true, frame_bgr)) {
                 l2m_image_bgr_to_rgb(frame_bgr, frame_rgb);
 
-                /* 2. 弹窗先验巡检与自动关闭 (每 2 次循环检查一次) */
+                /* 2. 弹窗先验巡检与自动关闭 (受 CBT 配置文件中的 enabled 开关控制，每 2 次循环检查一次) */
                 if (cycle % 2 == 0) {
-                    L2MRect tl_roi = {10, 10, 260, 150};
-                    L2MImageBuffer* tl_crop = l2m_image_create(tl_roi.width, tl_roi.height, L2M_FMT_RGB888);
-                    if (tl_crop && l2m_image_crop(frame_rgb, &tl_roi, tl_crop)) {
+                    char reg_utf8[16] = "CN";
+                    WideCharToMultiByte(CP_UTF8, 0, c->region, -1, reg_utf8, sizeof(reg_utf8), NULL, NULL);
+                    L2MCbtConfig cbt_cfg;
+                    if (l2m_cbt_load(reg_utf8, &cbt_cfg)) {
                         L2MPopupResult pop_res;
-                        if (l2m_detect_popup(tl_crop, tl_roi.x, tl_roi.y, L2M_POPUP_TOP_LEFT, true, &pop_res) && pop_res.detected) {
+                        if (l2m_detect_all_popups(frame_rgb, &cbt_cfg, &pop_res) && pop_res.detected) {
                             c->popup_blocked_count++;
                             wcsncpy_s(c->last_action, sizeof(c->last_action)/sizeof(wchar_t), L"🛡️ 拦截并关闭弹窗", _TRUNCATE);
 
@@ -279,11 +281,10 @@ static DWORD WINAPI MultiClientWorkerThread(LPVOID lpParam) {
 
                             wchar_t pop_log[256];
                             swprintf(pop_log, sizeof(pop_log)/sizeof(wchar_t),
-                                     L"🛡️ 窗口 [%08X] 成功拦截左上角提示弹窗并安全关闭 (累计 %d 次)",
-                                     (unsigned int)(uintptr_t)c->hwnd, c->popup_blocked_count);
+                                     L"🛡️ 窗口 [%08X] 成功拦截弹窗 [%hs] 并安全关闭 (累计 %d 次)",
+                                     (unsigned int)(uintptr_t)c->hwnd, pop_res.popup_name, c->popup_blocked_count);
                             append_multi_log_w(pop_log);
                         }
-                        l2m_image_free(tl_crop);
                     }
                 }
 
